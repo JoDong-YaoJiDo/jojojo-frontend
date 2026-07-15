@@ -3,12 +3,11 @@
     <header class="bg-white/80 backdrop-blur-md border-b border-border-subtle/50 w-full z-50 flex-shrink-0">
       <div class="flex items-center w-full px-6 md:px-8 h-16">
         <div class="flex items-center gap-2">
-          <div class="w-8 h-8 bg-tourism-vibrant rounded-lg flex items-center justify-center">
-            <span class="material-symbols-outlined text-white text-[20px]">explore</span>
-          </div>
-          <div class="text-2xl font-bold tracking-tighter text-on-surface select-none">
-            Local<span class="text-tourism-vibrant">Hub</span>
-          </div>
+          <img
+            src="/logo.png"
+            alt="LocalHub 로고"
+            class="h-10 w-auto object-contain select-none"
+          />
         </div>
       </div>
     </header>
