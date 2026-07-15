@@ -1,5 +1,5 @@
 import axios from "axios";
-const USE_MOCK = true;
+const USE_MOCK = false;
 
 const api = axios.create({
   // 개발 중
