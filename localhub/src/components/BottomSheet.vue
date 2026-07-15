@@ -12,13 +12,6 @@
             <div class="relative w-full h-48 md:h-56 rounded-3xl overflow-hidden shadow-xl group">
               <img :src="selectedPlace.image" :alt="selectedPlace.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
               <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent flex flex-col justify-end p-6">
-                <div class="flex items-center gap-2 mb-2">
-                  <span class="px-2.5 py-1 bg-tourism-vibrant text-white text-[10px] font-bold rounded uppercase shadow-lg">추천 명소</span>
-                  <div class="flex items-center bg-white/20 backdrop-blur-md px-2 py-0.5 rounded-full text-white font-bold gap-0.5 text-xs">
-                    <span class="material-symbols-outlined text-[14px] fill-1">star</span>
-                    <span>{{ selectedPlace.rating }}</span>
-                  </div>
-                </div>
                 <h1 class="text-2xl md:text-3xl font-bold text-white leading-tight mb-1">{{ selectedPlace.title }}</h1>
                 <div class="flex items-center gap-1.5 text-xs text-white/80">
                   <span class="material-symbols-outlined text-[16px]">location_on</span>
@@ -32,7 +25,7 @@
                   @click.stop="handleWriteClick"
                 >
                   <span class="material-symbols-outlined text-[18px]">edit_square</span>
-                  <span>이야기 남기기</span>
+                  <span>소식 남기기</span>
                 </button>
               </div>
               
@@ -65,7 +58,9 @@
                     </div>
                     <div>
                       <div class="text-xs font-bold text-on-surface">{{ post.nickname }}</div>
-                      <div class="text-[10px] text-on-surface-variant/60">리포트 · {{ post.category }}</div>
+                      <div class="text-[10px] text-on-surface-variant/60">
+                        리포트 · {{ post.category }} · {{ formatTime(post.created_at || post.createdAt) }}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -80,7 +75,7 @@
               </div>
             </div>
             <div v-if="posts.length === 0" class="text-center py-16 text-xs text-outline bg-white/40 border border-dashed border-border-subtle rounded-2xl col-span-full">
-              작성된 실시간 소식이 없습니다. 첫 번째 이야기를 공유해 보세요.
+              작성된 실시간 소식이 없습니다. 첫 번째 소식을 공유해 보세요.
             </div>
           </div>
         </div>
@@ -95,7 +90,8 @@
             <span class="text-sm font-bold text-slate-800">소식 상세 조회</span>
           </div>
           <div class="flex gap-2">
-            <button class="text-xs font-bold text-slate-500 hover:text-tourism-vibrant px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors" @click.stop="openAuthModal('edit')">수정</button>
+            <!-- [수정] 수정 클릭 시 handleEditClick 호출하여 검증 없이 폼으로 다이렉트 랜딩 -->
+            <button class="text-xs font-bold text-slate-500 hover:text-tourism-vibrant px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors" @click.stop="handleEditClick">수정</button>
             <button class="text-xs font-bold text-slate-500 hover:text-status-error px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors" @click.stop="openAuthModal('delete')">삭제</button>
           </div>
         </div>
@@ -109,7 +105,9 @@
                 </div>
                 <div>
                   <div class="text-sm font-bold text-slate-800">{{ selectedPost.nickname }}</div>
-                  <div class="text-[11px] text-slate-400">실시간 리포팅</div>
+                  <div class="text-[11px] text-slate-400">
+                    {{ formatTime(selectedPost.created_at || selectedPost.createdAt) }}
+                  </div>
                 </div>
               </div>
             </div>
@@ -129,7 +127,7 @@
               <div class="flex gap-2">
                 <input v-model="commentForm.nickname" type="text" placeholder="닉네임" class="w-1/3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:border-tourism-vibrant" required />
               </div>
-              <textarea v-model="commentForm.content" :placeholder="replyTarget ? '답글 내용을 입력하세요' : '공유할 의견을 작성하세요'" class="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs min-h-[60px] focus:outline-none focus:border-tourism-vibrant resize-none" required></textarea>
+              <textarea v-model="commentForm.content" :placeholder="replyTarget ? '답글 내용을 입력하세요' : '공유할 소식을 작성하세요'" class="w-full bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs min-h-[60px] focus:outline-none focus:border-tourism-vibrant resize-none" required></textarea>
               <div class="flex justify-end">
                 <button type="submit" class="bg-tourism-vibrant text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-blue-600 transition-colors">등록</button>
               </div>
@@ -141,11 +139,12 @@
                   <div class="flex-grow">
                     <div class="flex justify-between items-center mb-1.5">
                       <span class="text-xs font-bold text-slate-800">{{ comment.nickname }}</span>
+                      <span class="text-[10px] text-slate-400">{{ formatTime(comment.created_at || comment.createdAt) }}</span>
                     </div>
                     <p class="text-xs text-slate-600 leading-relaxed">{{ comment.content }}</p>
                   </div>
                   <button 
-                    class="text-[10px] font-bold text-tourism-vibrant hover:underline ml-3 flex-shrink-0"
+                    class="text-[10px] font-bold text-tourism-vibrant hover:underline ml-3 flex-shrink-0 align-top"
                     @click.stop="setReplyTarget(comment)"
                   >
                     답글
@@ -159,7 +158,9 @@
                 >
                   <div class="flex justify-between items-center mb-1">
                     <span class="text-xs font-bold text-slate-700">{{ reply.nickname }}</span>
-                    <span class="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">답글</span>
+                    <span class="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                      답글 · {{ formatTime(reply.created_at || reply.createdAt) }}
+                    </span>
                   </div>
                   <p class="text-xs text-slate-600 leading-relaxed">{{ reply.content }}</p>
                 </div>
@@ -178,7 +179,7 @@
           <button class="flex items-center justify-center w-8 h-8 rounded-full hover:bg-slate-100 transition-colors" @click.stop="cancelCreateOrEdit">
             <span class="material-symbols-outlined text-slate-600">arrow_back</span>
           </button>
-          <span class="text-sm font-bold text-slate-800">{{ isEditingMode ? '이야기 수정' : '새 이야기 쓰기' }}</span>
+          <span class="text-sm font-bold text-slate-800">{{ isEditingMode ? '소식 수정' : '새 소식 쓰기' }}</span>
         </div>
 
         <form @submit.prevent="submitPost" class="flex-grow overflow-y-auto custom-scrollbar flex flex-col gap-4 pr-1">
@@ -197,13 +198,16 @@
             <textarea v-model="createForm.content" placeholder="방문자들을 위한 현장 소식을 남겨주세요" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm min-h-[140px] focus:outline-none focus:border-tourism-vibrant transition-all resize-none" required></textarea>
           </div>
 
+          <!-- [수정] 작성 모드와 수정 모드 관계없이 비밀번호 상시 입력창 노출 (인증 전용 타이틀 분기) -->
           <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-bold text-slate-500">비밀번호 (수정/삭제용)</label>
+            <label class="text-xs font-bold text-slate-500">
+              {{ isEditingMode ? '비밀번호 확인 (본인 인증용)' : '비밀번호 (수정/삭제용)' }}
+            </label>
             <input v-model="createForm.password" type="password" placeholder="비밀번호 4자리" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-tourism-vibrant transition-all" required />
           </div>
 
           <button type="submit" class="w-full bg-community-emerald text-white py-3.5 rounded-xl font-bold text-sm hover:bg-emerald-600 transition-all shadow-md mt-2">
-            {{ isEditingMode ? '수정 완료하기' : '소식 발행하기' }}
+            {{ isEditingMode ? '소식 수정 완료하기' : '소식 등록하기' }}
           </button>
         </form>
       </div>
@@ -264,6 +268,28 @@ const showAuthModal = ref(false);
 const authAction = ref(''); 
 const authPassword = ref('');
 
+const formatTime = (timeStr) => {
+  if (!timeStr) return '';
+  const date = new Date(timeStr);
+  if (isNaN(date.getTime())) return timeStr;
+  
+  const now = new Date();
+  const diffMs = now - date;
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffMins < 1) return '방금 전';
+  if (diffMins < 60) return `${diffMins}분 전`;
+  if (diffHours < 24) return `${diffHours}시간 전`;
+  if (diffDays < 7) return `${diffDays}일 전`;
+  
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}.${month}.${day}`;
+};
+
 const rootComments = computed(() => {
   if (!props.selectedPost || !props.selectedPost.comments) return [];
   return props.selectedPost.comments.filter(c => !c.parent_id);
@@ -296,20 +322,24 @@ const openAuthModal = (action) => {
   showAuthModal.value = true;
 };
 
+// [수정] 모달 로직을 단순화하여 'delete' 본인인증 전용 구조로 교정
 const confirmAuth = () => {
   showAuthModal.value = false;
   if (authAction.value === 'delete') {
     emit('delete-post', { postId: props.selectedPost.id, password: authPassword.value });
-  } else if (authAction.value === 'edit') {
-    isEditingMode.value = true;
-    createForm.value = {
-      nickname: props.selectedPost.nickname,
-      title: props.selectedPost.title,
-      content: props.selectedPost.content,
-      password: ''
-    };
-    emit('change-view', 'create');
   }
+};
+
+// [수정] 모달 진입 단계를 제거하고, 수정 대상 값을 폼 스토리지에 매핑하여 즉시 랜딩
+const handleEditClick = () => {
+  isEditingMode.value = true;
+  createForm.value = {
+    nickname: props.selectedPost.nickname,
+    title: props.selectedPost.title,
+    content: props.selectedPost.content,
+    password: ''
+  };
+  emit('change-view', 'create');
 };
 
 const backToFeed = () => {

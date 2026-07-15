@@ -268,10 +268,19 @@ const fetchPostsByPlace = async (placeId) => {
       title: post.title,
       content: post.content,
       nickname: post.nickname,
-      likes: post.likes || 0,
-      bookmarks: post.bookmarks || 0,
+      likes: post.like_count || 0,      // 백엔드 스펙 매핑 (like_count)
+      bookmarks: post.bookmark_count || 0, // 백엔드 스펙 매핑 (bookmark_count)
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
-      comments: post.comments || []
+      created_at: post.created_at,      // 소식 생성 시간 파이프라인 연결
+      comments: (post.comments || []).map(c => ({
+        id: c.id,
+        post_id: c.post_id,
+        parent_id: c.parent_id,
+        nickname: c.nickname,
+        content: c.content,
+        created_at: c.created_at,       // 댓글 생성 시간 파이프라인 연결
+        replies: c.replies || []
+      }))
     }));
   } catch (error) {
     console.error('게시글 API 조회 실패:', error);
@@ -316,19 +325,26 @@ const handleCommentSubmit = async ({ postId, comment }) => {
     const response = await api.get(`/posts/${postId}`);
     const detailData = response.data;
 
-    const updatedPost = {
+    selectedPost.value = {
       id: detailData.id,
       placeId: detailData.place_id,
       title: detailData.title,
       content: detailData.content,
       nickname: detailData.nickname,
-      likes: detailData.likes || 0,
-      bookmarks: detailData.bookmarks || 0,
+      likes: detailData.like_count || 0,
+      bookmarks: detailData.bookmark_count || 0,
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
-      comments: detailData.comments || []
+      created_at: detailData.created_at, // 소식 생성 시간 동기화
+      comments: (detailData.comments || []).map(c => ({
+        id: c.id,
+        post_id: c.post_id,
+        parent_id: c.parent_id,
+        nickname: c.nickname,
+        content: c.content,
+        created_at: c.created_at,       // 댓글 생성 시간 동기화
+        replies: c.replies || []
+      }))
     };
-
-    selectedPost.value = updatedPost;
 
     if (selectedPlace.value) {
       await fetchPostsByPlace(selectedPlace.value.id);
@@ -503,10 +519,19 @@ const handleSelectPost = async (post) => {
       title: detailData.title,
       content: detailData.content,
       nickname: detailData.nickname,
-      likes: detailData.likes || 0,
-      bookmarks: detailData.bookmarks || 0,
+      likes: detailData.like_count || 0,
+      bookmarks: detailData.bookmark_count || 0,
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
-      comments: detailData.comments || []
+      created_at: detailData.created_at, // 소식 생성 시간 동기화
+      comments: (detailData.comments || []).map(c => ({
+        id: c.id,
+        post_id: c.post_id,
+        parent_id: c.parent_id,
+        nickname: c.nickname,
+        content: c.content,
+        created_at: c.created_at,       // 댓글 생성 시간 동기화
+        replies: c.replies || []
+      }))
     };
     sheetView.value = 'detail';
   } catch (error) {
