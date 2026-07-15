@@ -2,32 +2,33 @@ stages:
   - build
   - deploy
 
-default:
-  image: node:22-alpine
-
-variables:
-  DEPLOY_DIR: /frontend
-
 build_frontend:
   stage: build
+  image: node:22-alpine
+
   script:
     - cd localhub
     - npm ci
     - npm run build
+
   artifacts:
     paths:
-      - dist/
+      - localhub/dist/
     expire_in: 1 hour
+
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
 
 deploy_frontend:
   stage: deploy
+  image: alpine:latest
   needs:
     - build_frontend
+
   script:
-    - mkdir -p "$DEPLOY_DIR"
-    - rm -rf "$DEPLOY_DIR"/*
-    - cp -r dist/. "$DEPLOY_DIR"/
+    - rm -rf /frontend/*
+    - cp -r localhub/dist/. /frontend/
+    - ls -al /frontend
+
   rules:
     - if: '$CI_COMMIT_BRANCH == "master"'
