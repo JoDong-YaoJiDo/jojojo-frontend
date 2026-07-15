@@ -21,7 +21,7 @@ export const askChat = async (message) => {
     };
   }
 
-  const { data } = await api.post("/api/chat", {
+  const { data } = await api.post("/chat", {
     message,
   });
 
