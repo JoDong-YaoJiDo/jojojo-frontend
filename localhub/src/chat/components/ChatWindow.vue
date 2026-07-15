@@ -1,107 +1,34 @@
-<script setup>
-import { ref, nextTick } from "vue";
-
-import ChatMessage from "./ChatMessage.vue";
-import ChatInput from "./ChatInput.vue";
-import { askChat } from "../api/chat";
-
-const emit = defineEmits(["close"]);
-
-const loading = ref(false);
-
-const messages = ref([
-  {
-    role: "assistant",
-    content:
-      "👋 안녕하세요!\n\n부산 관광 AI입니다.\n원하는 내용을 선택하거나 질문을 입력해주세요.",
-  },
-]);
-
-const bodyRef = ref(null);
-
-function scrollBottom() {
-  nextTick(() => {
-    if (bodyRef.value) {
-      bodyRef.value.scrollTop = bodyRef.value.scrollHeight;
-    }
-  });
-}
-
-async function send(msg) {
-  messages.value.push({
-    role: "user",
-    content: msg,
-  });
-
-  scrollBottom();
-
-  loading.value = true;
-
-  try {
-    const res = await askChat(msg);
-
-    messages.value.push({
-      role: "assistant",
-      content: res.answer,
-    });
-  } catch (e) {
-    messages.value.push({
-      role: "assistant",
-      content: "죄송합니다. 현재 AI 서버에 연결할 수 없습니다.",
-    });
-
-    console.error(e);
-  } finally {
-    loading.value = false;
-    scrollBottom();
-  }
-}
-</script>
-
 <template>
-  <div class="chat-window">
-    <!-- Header -->
-    <div class="header">
-      <div class="header-title">
-        <span class="material-symbols-outlined">
-          smart_toy
-        </span>
-
-        <span>AI Local Expert</span>
+  <div class="fixed right-6 bottom-24 w-[360px] h-[560px] bg-white border border-border-subtle/50 rounded-2xl shadow-2xl flex flex-col overflow-hidden z-[9999] animate-dropdown-fade">
+    <div class="h-14 bg-white border-b border-border-subtle/50 flex items-center justify-between px-4 flex-shrink-0">
+      <div class="flex items-center gap-2 text-on-surface text-sm font-bold select-none">
+        <span class="material-symbols-outlined text-tourism-vibrant text-[20px]">explore</span>
+        <span>로컬 길잡이</span>
       </div>
-
       <button
-        class="close-btn"
+        class="text-outline hover:text-on-surface flex items-center justify-center w-8 h-8 rounded-lg hover:bg-slate-50 transition-colors cursor-pointer focus:outline-none"
         @click="emit('close')"
       >
-        ✕
+        <span class="material-symbols-outlined text-[18px]">close</span>
       </button>
     </div>
 
-    <!-- Body -->
     <div
-      class="body"
+      class="flex-grow overflow-y-auto p-4 bg-slate-50/50"
       ref="bodyRef"
     >
-      <!-- 추천 질문 -->
       <div
         v-if="messages.length === 1"
-        class="quick-actions"
+        class="flex flex-col gap-1.5 mb-4"
       >
-        <button @click="send('부산 맛집 추천')">
-          🍜 맛집 추천
-        </button>
-
-        <button @click="send('부산 축제 일정')">
-          🎉 축제 일정
-        </button>
-
-        <button @click="send('부산 관광 명소 추천')">
-          📍 관광 명소
-        </button>
-
-        <button @click="send('커뮤니티 인기글 보여줘')">
-          📝 커뮤니티 검색
+        <button 
+          v-for="action in quickActions" 
+          :key="action.text"
+          @click="send(action.query)"
+          class="w-full text-left bg-white border border-border-subtle/50 text-on-surface-variant hover:border-tourism-vibrant hover:bg-tourism-vibrant/5 px-4 py-3 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer focus:outline-none"
+        >
+          <span class="material-symbols-outlined text-[16px] text-tourism-vibrant">{{ action.icon }}</span>
+          <span>{{ action.text }}</span>
         </button>
       </div>
 
@@ -112,130 +39,95 @@ async function send(msg) {
         :content="m.content"
       />
 
-      <ChatMessage
-        v-if="loading"
-        role="assistant"
-        content="답변을 생성하는 중입니다..."
-      />
+      <div 
+        v-if="loading" 
+        class="flex justify-start mb-3"
+      >
+        <div class="bg-white border border-border-subtle/30 text-outline px-4 py-2.5 rounded-2xl rounded-tl-none text-sm font-medium flex items-center gap-2 shadow-sm">
+          <div class="animate-spin-custom w-3 h-3 border-2 border-tourism-vibrant border-top-color-transparent rounded-full"></div>
+          <span>답변 생성 중...</span>
+        </div>
+      </div>
     </div>
 
-    <!-- Footer -->
-    <div class="footer">
+    <div class="p-3 border-top border-border-subtle/50 bg-white flex-shrink-0">
       <ChatInput @send="send" />
     </div>
   </div>
 </template>
 
-<style scoped>
-.chat-window {
-  position: fixed;
-  right: 24px;
-  bottom: 96px;
+<script setup>
+import { ref, nextTick, computed, watch } from "vue";
+import ChatMessage from "./ChatMessage.vue";
+import ChatInput from "./ChatInput.vue";
+import { askChat } from "../api/chat";
 
-  width: 360px;
-  height: 560px;
+const props = defineProps({
+  currentRegionLabel: { type: String, default: "전국" }
+});
 
-  background: white;
+const emit = defineEmits(["close"]);
+const loading = ref(false);
+const bodyRef = ref(null);
+const messages = ref([]);
 
-  border-radius: 18px;
+const quickActions = computed(() => [
+  { 
+    text: `${props.currentRegionLabel} 쇼핑할 곳 추천`, 
+    query: `${props.currentRegionLabel} 쇼핑할 곳 추천`, 
+    icon: 'shopping_bag' 
+  },
+  { 
+    text: `${props.currentRegionLabel} 여행코스 추천`, 
+    query: `${props.currentRegionLabel} 여행코스 추천`, 
+    icon: 'route' 
+  },
+  { 
+    text: `${props.currentRegionLabel} 관광지 추천`, 
+    query: `${props.currentRegionLabel} 관광지 추천`, 
+    icon: 'tour' 
+  },
+  { 
+    text: '커뮤니티 인기글 보여줘', 
+    query: '커뮤니티 인기글 보여줘', 
+    icon: 'forum' 
+  }
+]);
 
-  display: flex;
-  flex-direction: column;
+const scrollBottom = () => {
+  nextTick(() => {
+    if (bodyRef.value) {
+      bodyRef.value.scrollTop = bodyRef.value.scrollHeight;
+    }
+  });
+};
 
-  overflow: hidden;
+const send = async (msg) => {
+  messages.value.push({ role: "user", content: msg });
+  scrollBottom();
+  loading.value = true;
 
-  box-shadow: 0 12px 35px rgba(0, 0, 0, .18);
+  try {
+    const res = await askChat(msg);
+    messages.value.push({ role: "assistant", content: res.answer });
+  } catch (e) {
+    messages.value.push({
+      role: "assistant",
+      content: "현재 AI 인터페이스 연결에 장애가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+    });
+    console.error(e);
+  } finally {
+    loading.value = false;
+    scrollBottom();
+  }
+};
 
-  z-index: 9999;
-}
-
-.header {
-  height: 56px;
-
-  background: #4F8EF7;
-
-  color: white;
-
-  display: flex;
-
-  justify-content: space-between;
-
-  align-items: center;
-
-  padding: 0 16px;
-}
-
-.header-title {
-  display: flex;
-
-  align-items: center;
-
-  gap: 8px;
-
-  font-weight: 600;
-
-  font-size: 15px;
-}
-
-.close-btn {
-  background: transparent;
-
-  border: none;
-
-  color: white;
-
-  cursor: pointer;
-
-  font-size: 18px;
-}
-
-.body {
-  flex: 1;
-
-  overflow-y: auto;
-
-  padding: 16px;
-
-  background: #F7F9FC;
-}
-
-.quick-actions {
-  display: flex;
-
-  flex-wrap: wrap;
-
-  gap: 8px;
-
-  margin-bottom: 18px;
-}
-
-.quick-actions button {
-  background: #EAFBF6;
-
-  color: #16a34a;
-
-  border: 1px solid #BBF7D0;
-
-  border-radius: 18px;
-
-  padding: 8px 12px;
-
-  font-size: 12px;
-
-  cursor: pointer;
-
-  transition: .2s;
-}
-
-.quick-actions button:hover {
-  background: #DCFCE7;
-}
-
-.footer {
-  padding: 12px;
-
-  border-top: 1px solid #e5e7eb;
-
-  background: white;
-}
-</style>
+watch(() => props.currentRegionLabel, (newLabel) => {
+  messages.value = [
+    {
+      role: "assistant",
+      content: `안녕하세요. ${newLabel} 로컬 인텔리전트 가이드입니다. 무엇을 도와드릴까요?`,
+    }
+  ];
+}, { immediate: true });
+</script>

@@ -1,40 +1,12 @@
-<script setup>
-const emit = defineEmits(["click"]);
-</script>
-
 <template>
   <button
-    class="chat-button"
+    class="fixed right-6 bottom-6 w-14 h-14 bg-tourism-vibrant text-white rounded-full flex items-center justify-center shadow-lg shadow-tourism-vibrant/20 hover:scale-105 active:scale-95 transition-transform cursor-pointer focus:outline-none z-[9999]"
     @click="emit('click')"
   >
-    💬
+    <span class="material-symbols-outlined text-[24px]">chat_bubble</span>
   </button>
 </template>
 
-<style scoped>
-.chat-button {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-
-  width: 58px;
-  height: 58px;
-
-  border: none;
-  border-radius: 50%;
-
-  background: #22c55e;
-  color: white;
-
-  font-size: 24px;
-  cursor: pointer;
-
-  box-shadow: 0 8px 20px rgba(34, 197, 94, .35);
-
-  z-index: 9999;
-}
-
-.chat-button:hover{
-  transform:scale(1.08);
-}
-</style>
+<script setup>
+const emit = defineEmits(["click"]);
+</script>

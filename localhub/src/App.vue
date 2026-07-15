@@ -113,7 +113,7 @@
         @add-comment="handleCommentSubmit"
       />
 
-      <ChatWidget />
+      <ChatWidget :current-region-label="selectedRegionLabel" />
     </main>
   </div>
 </template>
