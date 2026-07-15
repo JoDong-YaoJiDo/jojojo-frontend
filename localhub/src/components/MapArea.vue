@@ -7,7 +7,8 @@
 <script setup>
 import { ref, onMounted, watch, onUnmounted, computed } from 'vue';
 import { setOptions, importLibrary } from '@googlemaps/js-api-loader';
-import { MarkerClusterer } from '@googlemaps/markerclusterer';
+import { MarkerClusterer, SuperClusterAlgorithm } from '@googlemaps/markerclusterer';
+import api from '../api'; 
 
 const props = defineProps({
   tourismPlaces: { type: Array, default: () => [] },
@@ -25,14 +26,20 @@ let markerClusterer = null;
 let globalInfoWindow = null; 
 let activeInfoWindowMarker = null;
 
-const markerDOMMap = new Map();
+const markerCache = new Map(); 
+const markerDOMMap = new Map(); 
+const placeDetailsCache = new Map(); 
+
 let isProgrammaticZoom = false;
 const LATITUDE_OFFSET = 0.005; 
 
 let animationFrameId = null;
 const CHUNK_SIZE = 50; 
 
-// [2단계 유지] 사전 오프셋 좌표 연산
+let responsiveTimeout = null;
+
+const MAX_MARKERS_LIMIT = 80;
+
 const processedPlaces = computed(() => {
   const places = props.tourismPlaces;
   const positionCountMap = {};
@@ -79,29 +86,58 @@ const minimalMapStyle = [
 const initMap = async () => {
   try {
     const { Map } = await importLibrary('maps');
-    const googleMaps = await importLibrary('maps');
+    const { AdvancedMarkerElement } = await importLibrary('marker');
     
     const defaultCenter = { lat: props.currentRegionCoords.lat, lng: props.currentRegionCoords.lng };
     const defaultZoom = props.currentRegionCoords.zoom;
 
     isProgrammaticZoom = true;
+    
+    // [수정] Map 옵션에서 모든 컨트롤 UI 비활성화
     map = new Map(mapRef.value, {
       center: defaultCenter,
       zoom: defaultZoom,
-      disableDefaultUI: false,
-      zoomControl: true,
-      mapTypeControl: false,
-      scaleControl: true,
-      streetViewControl: false,
-      rotateControl: false,
-      fullscreenControl: false,
+      disableDefaultUI: true, // 모든 기본 UI 컨트롤 버튼 숨김
+      zoomControl: false,     // 확대/축소(+/-) 버튼 제거
+      mapTypeControl: false,  // 지도/위성 전환 제거
+      scaleControl: false,    // 축척 표시계 제거
+      streetViewControl: false, // 스트리트 뷰(페그맨) 제거
+      rotateControl: false,   // 회전 컨트롤 제거
+      fullscreenControl: false, // 전체화면 버튼 제거
       mapId: 'DEMO_MAP_ID',
       clickableIcons: false,
       styles: minimalMapStyle
     });
 
-    globalInfoWindow = new googleMaps.InfoWindow({
+    globalInfoWindow = new google.maps.InfoWindow({
       disableAutoPan: true
+    });
+
+    const customRenderer = {
+      render({ count, position }) {
+        const clusterContainer = document.createElement('div');
+        clusterContainer.className = 'relative flex items-center justify-center w-12 h-12 rounded-full bg-blue-500/15 border border-blue-500/35 backdrop-blur-sm shadow-md transition-transform duration-200 hover:scale-110 cursor-pointer gpu-accelerated-marker';
+
+        const innerCore = document.createElement('div');
+        innerCore.className = 'w-8.5 h-8.5 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 border-2 border-white flex items-center justify-center text-white text-xs font-extrabold shadow-md shadow-blue-700/25';
+        innerCore.innerText = String(count);
+
+        clusterContainer.appendChild(innerCore);
+
+        return new AdvancedMarkerElement({
+          position,
+          content: clusterContainer,
+        });
+      }
+    };
+
+    markerClusterer = new MarkerClusterer({
+      map: map,
+      renderer: customRenderer,
+      algorithm: new SuperClusterAlgorithm({
+        radius: 120,
+        maxZoom: 15
+      })
     });
 
     setTimeout(() => {
@@ -118,16 +154,83 @@ const initMap = async () => {
       emit('map-drag');
     });
 
+    const handleViewportChange = () => {
+      clearTimeout(responsiveTimeout);
+      responsiveTimeout = setTimeout(() => {
+        renderMarkersInViewport();
+      }, 100); 
+    };
+
+    map.addListener('bounds_changed', handleViewportChange);
     map.addListener('zoom_changed', () => {
       if (!isProgrammaticZoom) {
         emit('map-drag');
       }
+      handleViewportChange();
     });
 
-    await renderMarkers();
+    map.addListener('tilesloaded', () => {
+      renderMarkersInViewport();
+    });
+
   } catch (error) {
     console.error('구글 지도 로드 실패:', error);
   }
+};
+
+const renderMarkersInViewport = async () => {
+  if (!map) return;
+
+  const bounds = map.getBounds();
+  const center = map.getCenter();
+  const zoom = map.getZoom();
+  
+  if (!bounds || !center || zoom === undefined) return;
+
+  const ne = bounds.getNorthEast();
+  const sw = bounds.getSouthWest();
+
+  const latSpan = ne.lat() - sw.lat();
+  const lngSpan = ne.lng() - sw.lng();
+  
+  const latPadding = latSpan * 0.3;
+  const lngPadding = lngSpan * 0.3;
+
+  const paddedNorth = ne.lat() + latPadding;
+  const paddedSouth = sw.lat() - latPadding;
+  const paddedEast = ne.lng() + lngPadding;
+  const paddedWest = sw.lng() - lngPadding;
+
+  const filteredPlaces = processedPlaces.value.filter(place => {
+    return place.adjustedLat >= paddedSouth && 
+           place.adjustedLat <= paddedNorth && 
+           place.adjustedLng >= paddedWest && 
+           place.adjustedLng <= paddedEast;
+  });
+
+  let finalPlaces = filteredPlaces;
+
+  if (zoom >= 15) {
+    const centerLat = center.lat();
+    const centerLng = center.lng();
+
+    const placesWithDistance = filteredPlaces.map(place => {
+      const dy = place.adjustedLat - centerLat;
+      const dx = place.adjustedLng - centerLng;
+      return {
+        place,
+        distSq: dx * dx + dy * dy
+      };
+    });
+
+    placesWithDistance.sort((a, b) => a.distSq - b.distSq);
+
+    finalPlaces = placesWithDistance
+      .slice(0, MAX_MARKERS_LIMIT)
+      .map(item => item.place);
+  }
+
+  await renderMarkers(finalPlaces);
 };
 
 const applyMarkerStyle = (placeId, isSelected) => {
@@ -159,7 +262,17 @@ const applyMarkerStyle = (placeId, isSelected) => {
   }
 };
 
-const renderMarkers = async () => {
+const createInfoWindowMarkup = (data) => {
+  return `
+    <div style="padding: 10px; font-family: system-ui, -apple-system, sans-serif; min-width: 170px;">
+      <h4 style="margin: 0 0 6px 0; font-size: 14px; font-weight: 800; color: #0F172A;">${data.title}</h4>
+      <p style="margin: 0 0 4px 0; font-size: 11px; color: #64748B; line-height: 1.4;">${data.addr1 || '주소 정보 없음'}</p>
+      ${data.tel ? `<p style="margin: 0; font-size: 11px; color: #3B82F6; font-weight: 600;">☎ ${data.tel}</p>` : ''}
+    </div>
+  `;
+};
+
+const renderMarkers = async (places) => {
   if (!map) return;
 
   if (animationFrameId) {
@@ -167,113 +280,134 @@ const renderMarkers = async () => {
     animationFrameId = null;
   }
 
-  if (globalInfoWindow) {
-    globalInfoWindow.close();
-    activeInfoWindowMarker = null;
-  }
-
-  googleMarkers.forEach(marker => {
-    marker.map = null;
-  });
-  googleMarkers = [];
-  markerDOMMap.clear(); 
-
-  if (markerClusterer) {
-    markerClusterer.clearMarkers();
-  }
-
   try {
     const { AdvancedMarkerElement } = await importLibrary('marker');
-    const places = processedPlaces.value;
     const totalCount = places.length;
-    
     let currentIndex = 0;
+
+    const tempGoogleMarkers = [];
+    const tempMarkerDOMMap = new Map();
 
     const processChunk = () => {
       const end = Math.min(currentIndex + CHUNK_SIZE, totalCount);
 
       for (let i = currentIndex; i < end; i++) {
         const place = places[i];
-
-        const position = { lat: place.adjustedLat, lng: place.adjustedLng };
         const isSelected = props.selectedPlace && props.selectedPlace.id === place.id;
 
-        const container = document.createElement('div');
-        container.className = isSelected 
-          ? 'relative flex flex-col items-center cursor-pointer transition-transform duration-300 scale-[1.18] z-10 animate-marker-drop gpu-accelerated-marker' 
-          : 'relative flex flex-col items-center cursor-pointer transition-transform duration-300 scale-100 z-0 animate-marker-drop gpu-accelerated-marker';
-        container.style.animationDelay = `${Math.min(i * 4, 80)}ms`;
+        let cachedEntry = markerCache.get(place.id);
 
-        // [최적화 3단계] 다중 createElement 연산을 단일 innerHTML 템플릿 마크업 주입으로 대체
-        const iconName = place.content_type === '맛집/카페' ? 'restaurant' : 'account_balance';
-        const badgeClass = isSelected
-          ? 'flex items-center gap-1.5 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white px-3.5 py-2 rounded-full text-xs font-bold border-2 border-white shadow-lg shadow-emerald-500/30 whitespace-nowrap'
-          : 'flex items-center gap-1.5 bg-gradient-to-br from-blue-500 to-blue-600 text-white px-3.5 py-2 rounded-full text-xs font-bold border-2 border-white shadow-md shadow-blue-500/15 whitespace-nowrap';
-        const arrowClass = isSelected
-          ? 'w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-emerald-600 -mt-[1px]'
-          : 'w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-blue-600 -mt-[1px]';
+        if (!cachedEntry) {
+          const container = document.createElement('div');
+          container.className = isSelected 
+            ? 'relative flex flex-col items-center cursor-pointer transition-transform duration-300 scale-[1.18] z-10 animate-marker-drop gpu-accelerated-marker' 
+            : 'relative flex flex-col items-center cursor-pointer transition-transform duration-300 scale-100 z-0 animate-marker-drop gpu-accelerated-marker';
+          container.style.animationDelay = `${Math.min(i * 4, 80)}ms`;
 
-        container.innerHTML = `
-          ${isSelected ? '<div class="animate-ripple-periodic"></div>' : ''}
-          <div class="${badgeClass}">
-            <span class="material-symbols-outlined text-[14px]">${iconName}</span>
-            <span>${place.title}</span>
-          </div>
-          <div class="${arrowClass}"></div>
-        `;
+          const badgeClass = isSelected
+            ? 'flex items-center gap-1.5 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white px-3.5 py-2 rounded-full text-xs font-bold border-2 border-white shadow-lg shadow-emerald-500/30 whitespace-nowrap'
+            : 'flex items-center gap-1.5 bg-gradient-to-br from-blue-500 to-blue-600 text-white px-3.5 py-2 rounded-full text-xs font-bold border-2 border-white shadow-md shadow-blue-500/15 whitespace-nowrap';
+          const arrowClass = isSelected
+            ? 'w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-emerald-600 -mt-[1px]'
+            : 'w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-blue-600 -mt-[1px]';
 
-        // 고성능 인덱스 트리거 기반 캐싱 (querySelector 완전 배제)
-        const badge = isSelected ? container.children[1] : container.children[0];
-        const arrow = isSelected ? container.children[2] : container.children[1];
+          container.innerHTML = `
+            ${isSelected ? '<div class="animate-ripple-periodic"></div>' : ''}
+            <div class="${badgeClass}">
+              <span class="material-symbols-outlined text-[14px]">pin_drop</span>
+              <span>${place.title}</span>
+            </div>
+            <div class="${arrowClass}"></div>
+          `;
 
-        markerDOMMap.set(place.id, { container, badge, arrow });
+          const badge = isSelected ? container.children[1] : container.children[0];
+          const arrow = isSelected ? container.children[2] : container.children[1];
 
-        const marker = new AdvancedMarkerElement({
-          position: position,
-          title: place.title,
-          content: container,
-        });
+          const marker = new AdvancedMarkerElement({
+            position: { lat: place.adjustedLat, lng: place.adjustedLng },
+            title: place.title,
+            content: container,
+          });
 
-        const infoContent = `
-          <div style="padding: 10px; font-family: system-ui, -apple-system, sans-serif; min-width: 170px;">
-            <h4 style="margin: 0 0 6px 0; font-size: 14px; font-weight: 800; color: #0F172A;">${place.title}</h4>
-            <p style="margin: 0 0 4px 0; font-size: 11px; color: #64748B; line-height: 1.4;">${place.addr1}</p>
-            ${place.tel ? `<p style="margin: 0; font-size: 11px; color: #3B82F6; font-weight: 600;">☎ ${place.tel}</p>` : ''}
-          </div>
-        `;
+          container.addEventListener('mouseenter', async () => {
+            const currentSelected = props.selectedPlace && props.selectedPlace.id === place.id;
+            container.style.transform = currentSelected ? 'scale(1.28)' : 'scale(1.15)';
 
-        container.addEventListener('mouseenter', () => {
-          if (activeInfoWindowMarker !== marker) {
-            globalInfoWindow.setContent(infoContent);
-            globalInfoWindow.open(map, marker);
+            if (activeInfoWindowMarker === marker) return;
             activeInfoWindowMarker = marker;
-          }
-          container.style.transform = isSelected ? 'scale(1.28)' : 'scale(1.15)';
+
+            if (placeDetailsCache.has(place.id)) {
+              const cachedData = placeDetailsCache.get(place.id);
+              globalInfoWindow.setContent(createInfoWindowMarkup(cachedData));
+              globalInfoWindow.open(map, marker);
+              return;
+            }
+
+            globalInfoWindow.setContent(`
+              <div style="padding: 10px; font-family: system-ui, -apple-system, sans-serif; min-width: 170px; display: flex; align-items: center; gap: 8px;">
+                <div class="animate-spin-custom" style="width: 12px; height: 12px; border: 2px solid #3B82F6; border-top-color: transparent; border-radius: 50%; display: inline-block;"></div>
+                <span style="font-size: 11px; color: #64748B;">정보를 불러오는 중...</span>
+              </div>
+            `);
+            globalInfoWindow.open(map, marker);
+
+            try {
+              const response = await api.get('/details', { params: { place_id: place.id } });
+              const detailData = response.data;
+
+              placeDetailsCache.set(place.id, detailData);
+
+              if (activeInfoWindowMarker === marker) {
+                globalInfoWindow.setContent(createInfoWindowMarkup(detailData));
+              }
+            } catch (error) {
+              console.error('장소 상세 조회 실패:', error);
+              if (activeInfoWindowMarker === marker) {
+                globalInfoWindow.setContent(`
+                  <div style="padding: 10px; font-family: system-ui, -apple-system, sans-serif;">
+                    <span style="font-size: 11px; color: #EF4444;">정보를 가져오지 못했습니다.</span>
+                  </div>
+                `);
+              }
+            }
+          });
+
+          container.addEventListener('mouseleave', () => {
+            const currentSelected = props.selectedPlace && props.selectedPlace.id === place.id;
+            container.style.transform = currentSelected ? 'scale(1.18)' : 'scale(1.0)';
+          });
+
+          container.addEventListener('click', (e) => {
+            e.stopPropagation();
+            emit('place-click', place);
+            
+            const ripple = document.createElement('div');
+            ripple.className = 'animate-ripple';
+            container.appendChild(ripple);
+            setTimeout(() => { ripple.remove(); }, 500);
+
+            if (map) {
+              const targetLatLng = { lat: Number(place.adjustedLat) - LATITUDE_OFFSET, lng: Number(place.adjustedLng) };
+              isProgrammaticZoom = true;
+              map.panTo(targetLatLng);
+              map.setZoom(16);
+              setTimeout(() => { isProgrammaticZoom = false; }, 800);
+            }
+          });
+
+          cachedEntry = { marker, container, badge, arrow };
+          markerCache.set(place.id, cachedEntry);
+        } else {
+          applyMarkerStyle(place.id, isSelected);
+        }
+
+        tempMarkerDOMMap.set(place.id, { 
+          container: cachedEntry.container, 
+          badge: cachedEntry.badge, 
+          arrow: cachedEntry.arrow 
         });
 
-        container.addEventListener('mouseleave', () => {
-          container.style.transform = isSelected ? 'scale(1.18)' : 'scale(1.0)';
-        });
-
-        container.addEventListener('click', (e) => {
-          e.stopPropagation();
-          emit('place-click', place);
-          
-          const ripple = document.createElement('div');
-          ripple.className = 'animate-ripple';
-          container.appendChild(ripple);
-          setTimeout(() => { ripple.remove(); }, 500);
-
-          if (map) {
-            const targetLatLng = { lat: Number(place.adjustedLat) - LATITUDE_OFFSET, lng: Number(place.adjustedLng) };
-            isProgrammaticZoom = true;
-            map.panTo(targetLatLng);
-            map.setZoom(16);
-            setTimeout(() => { isProgrammaticZoom = false; }, 800);
-          }
-        });
-
-        googleMarkers.push(marker);
+        tempGoogleMarkers.push(cachedEntry.marker);
       }
 
       currentIndex = end;
@@ -281,7 +415,24 @@ const renderMarkers = async () => {
       if (currentIndex < totalCount) {
         animationFrameId = requestAnimationFrame(processChunk);
       } else {
-        buildClusterer();
+        if (globalInfoWindow && activeInfoWindowMarker) {
+          if (!tempGoogleMarkers.includes(activeInfoWindowMarker)) {
+            globalInfoWindow.close();
+            activeInfoWindowMarker = null;
+          }
+        }
+
+        if (markerClusterer) {
+          markerClusterer.clearMarkers();
+          markerClusterer.addMarkers(tempGoogleMarkers);
+        }
+
+        googleMarkers = tempGoogleMarkers;
+        
+        markerDOMMap.clear();
+        for (const [key, value] of tempMarkerDOMMap.entries()) {
+          markerDOMMap.set(key, value);
+        }
       }
     };
 
@@ -290,32 +441,6 @@ const renderMarkers = async () => {
   } catch (error) {
     console.error('마커 생성 및 클러스터러 연동 실패:', error);
   }
-};
-
-const buildClusterer = () => {
-  const customRenderer = {
-    render({ count, position }) {
-      const clusterContainer = document.createElement('div');
-      clusterContainer.className = 'relative flex items-center justify-center w-12 h-12 rounded-full bg-blue-500/15 border border-blue-500/35 backdrop-blur-sm shadow-md transition-transform duration-200 hover:scale-110 cursor-pointer gpu-accelerated-marker';
-
-      const innerCore = document.createElement('div');
-      innerCore.className = 'w-8.5 h-8.5 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 border-2 border-white flex items-center justify-center text-white text-xs font-extrabold shadow-md shadow-blue-700/25';
-      innerCore.innerText = String(count);
-
-      clusterContainer.appendChild(innerCore);
-
-      return new google.maps.marker.AdvancedMarkerElement({
-        position,
-        content: clusterContainer,
-      });
-    }
-  };
-
-  markerClusterer = new MarkerClusterer({
-    map: map,
-    markers: googleMarkers,
-    renderer: customRenderer 
-  });
 };
 
 watch(() => props.selectedPlace, (newPlace, oldPlace) => {
@@ -350,7 +475,8 @@ watch(() => props.currentRegionCoords, (coords) => {
 
 watch(() => props.tourismPlaces, async () => {
   if (map) {
-    await renderMarkers();
+    markerCache.clear();
+    await renderMarkersInViewport();
   }
 }, { deep: true });
 
@@ -362,6 +488,7 @@ onUnmounted(() => {
   if (animationFrameId) {
     cancelAnimationFrame(animationFrameId);
   }
+  clearTimeout(responsiveTimeout);
 });
 </script>
 
@@ -371,8 +498,15 @@ onUnmounted(() => {
   contain: layout paint;
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.animate-spin-custom {
+  animation: spin 0.8s linear infinite;
+}
+
 @keyframes marker-drop-bounce {
-  0 {
+  0% {
     transform: translateY(-40px) scaleY(1.15);
     opacity: 0;
   }
