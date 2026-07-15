@@ -90,8 +90,7 @@
             <span class="text-sm font-bold text-slate-800">소식 상세 조회</span>
           </div>
           <div class="flex gap-2">
-            <!-- [수정] 수정 클릭 시 handleEditClick 호출하여 검증 없이 폼으로 다이렉트 랜딩 -->
-            <button class="text-xs font-bold text-slate-500 hover:text-tourism-vibrant px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors" @click.stop="handleEditClick">수정</button>
+            <button class="text-xs font-bold text-slate-500 hover:text-tourism-vibrant px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors" @click.stop="openAuthModal('edit')">수정</button>
             <button class="text-xs font-bold text-slate-500 hover:text-status-error px-2.5 py-1.5 rounded-lg hover:bg-slate-100 transition-colors" @click.stop="openAuthModal('delete')">삭제</button>
           </div>
         </div>
@@ -198,12 +197,9 @@
             <textarea v-model="createForm.content" placeholder="방문자들을 위한 현장 소식을 남겨주세요" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm min-h-[140px] focus:outline-none focus:border-tourism-vibrant transition-all resize-none" required></textarea>
           </div>
 
-          <!-- [수정] 작성 모드와 수정 모드 관계없이 비밀번호 상시 입력창 노출 (인증 전용 타이틀 분기) -->
-          <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-bold text-slate-500">
-              {{ isEditingMode ? '비밀번호 확인 (본인 인증용)' : '비밀번호 (수정/삭제용)' }}
-            </label>
-            <input v-model="createForm.password" type="password" placeholder="비밀번호 4자리" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-tourism-vibrant transition-all" required />
+          <div v-if="!isEditingMode" class="flex flex-col gap-1.5">
+            <label class="text-xs font-bold text-slate-500">비밀번호 (수정/삭제용)</label>
+            <input v-model="createForm.password" type="password" placeholder="비밀번호 4자리" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-tourism-vibrant transition-all" :required="!isEditingMode" />
           </div>
 
           <button type="submit" class="w-full bg-community-emerald text-white py-3.5 rounded-xl font-bold text-sm hover:bg-emerald-600 transition-all shadow-md mt-2">
@@ -235,6 +231,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
+import api from '../api'; // [수정] 사전 인증 통신 처리를 위해 로컬 api 임포트
 
 const props = defineProps({
   selectedPlace: { type: Object, default: null },
@@ -270,7 +267,18 @@ const authPassword = ref('');
 
 const formatTime = (timeStr) => {
   if (!timeStr) return '';
-  const date = new Date(timeStr);
+  
+  let normalizedStr = timeStr;
+  
+  // 문자열에 T가 포함되어 있고 시간부에 타임존 정보(Z, +, -)가 없는 경우 UTC(Z) 접미사 강제 추가
+  if (typeof timeStr === 'string' && timeStr.includes('T')) {
+    const [, timePart] = timeStr.split('T');
+    if (timePart && !timePart.endsWith('Z') && !timePart.includes('+') && !timePart.includes('-')) {
+      normalizedStr = `${timeStr}Z`;
+    }
+  }
+
+  const date = new Date(normalizedStr);
   if (isNaN(date.getTime())) return timeStr;
   
   const now = new Date();
@@ -322,24 +330,40 @@ const openAuthModal = (action) => {
   showAuthModal.value = true;
 };
 
-// [수정] 모달 로직을 단순화하여 'delete' 본인인증 전용 구조로 교정
-const confirmAuth = () => {
-  showAuthModal.value = false;
+// [수정] 모달 확인 클릭 시 바로 폼으로 넘어가는 것이 아니라, 백엔드 PUT 요청을 먼저 날려서 비밀번호를 사전에 완벽히 검증
+const confirmAuth = async () => {
   if (authAction.value === 'delete') {
+    showAuthModal.value = false;
     emit('delete-post', { postId: props.selectedPost.id, password: authPassword.value });
-  }
-};
+  } else if (authAction.value === 'edit') {
+    try {
+      // 기존 소식 정보를 실은 PUT 통신을 날려 비밀번호 무결성을 체크합니다.
+      await api.put(`/posts/${props.selectedPost.id}`, {
+        title: props.selectedPost.title,
+        content: props.selectedPost.content,
+        nickname: props.selectedPost.nickname,
+        password: authPassword.value
+      });
 
-// [수정] 모달 진입 단계를 제거하고, 수정 대상 값을 폼 스토리지에 매핑하여 즉시 랜딩
-const handleEditClick = () => {
-  isEditingMode.value = true;
-  createForm.value = {
-    nickname: props.selectedPost.nickname,
-    title: props.selectedPost.title,
-    content: props.selectedPost.content,
-    password: ''
-  };
-  emit('change-view', 'create');
+      // 검증 성공 시에만 모달을 닫고 폼 데이터를 복사하여 수정 폼으로 이탈 진입
+      showAuthModal.value = false;
+      isEditingMode.value = true;
+      createForm.value = {
+        nickname: props.selectedPost.nickname,
+        title: props.selectedPost.title,
+        content: props.selectedPost.content,
+        password: authPassword.value // 사후 등록 완료 시 함께 전송될 수 있도록 미리 매핑
+      };
+      emit('change-view', 'create');
+    } catch (error) {
+      console.error('수정 사전 본인 인증 실패:', error);
+      if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+        alert('비밀번호가 일치하지 않습니다.');
+      } else {
+        alert('인증 처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+      }
+    }
+  }
 };
 
 const backToFeed = () => {

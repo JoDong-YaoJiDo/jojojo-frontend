@@ -107,8 +107,7 @@
         @fully-expand="handleFullyExpand"
         @clear-place-filter="clearPlaceFilter"
         @submit-post="submitPost"
-        @update-post="handlePostUpdate"
-        @delete-post="handlePostDelete"
+        @update-post="handlePostUpdate" @delete-post="handlePostDelete"
         @add-comment="handleCommentSubmit"
       />
 
@@ -356,22 +355,31 @@ const handleCommentSubmit = async ({ postId, comment }) => {
 const handlePostUpdate = async ({ postId, postData }) => {
   try {
     isLoading.value = true;
+
+    // 모달을 통해 수집한 검증용 비밀번호를 API 페이로드에 적재
     await api.put(`/posts/${postId}`, {
-      password: postData.password,
-      place_id: selectedPlace.value ? selectedPlace.value.id : null,
       title: postData.title,
       content: postData.content,
-      nickname: postData.nickname
+      nickname: postData.nickname,
+      password: postData.password 
     });
 
-    sheetView.value = 'feed';
-    selectedPost.value = null;
+    // 수정 완료 후 상세 데이터 재조회 및 화면 전환
+    await handleSelectPost({ id: postId });
+    
+    // 목록 갱신
     if (selectedPlace.value) {
       await fetchPostsByPlace(selectedPlace.value.id);
     }
   } catch (error) {
-    alert('비밀번호가 올바르지 않거나 수정 권한이 없습니다.');
-    console.error('게시글 수정 실패:', error);
+    console.error('소식 수정 오류:', error);
+    
+    // 비밀번호 오류 예외 분기
+    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      alert('비밀번호가 일치하지 않습니다.');
+    } else {
+      alert('소식 수정 처리 중 장애가 발생했습니다. 잠시 후 다시 시도해 주세요.');
+    }
   } finally {
     isLoading.value = false;
   }
