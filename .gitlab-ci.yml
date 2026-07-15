@@ -11,6 +11,7 @@ variables:
 build_frontend:
   stage: build
   script:
+    - cd localhub
     - npm ci
     - npm run build
   artifacts:
