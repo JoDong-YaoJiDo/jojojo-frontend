@@ -117,10 +117,6 @@ const initMap = async () => {
       disableAutoPan: true
     });
 
-    setTimeout(() => {
-      isProgrammaticZoom = false;
-    }, 500);
-
     map.addListener('click', () => {
       if (globalInfoWindow) globalInfoWindow.close();
       activeInfoWindowMarker = null;
@@ -139,6 +135,16 @@ const initMap = async () => {
 
     map.addListener('idle', () => {
       updateMapDisplay();
+      // [핵심 변경] 카메라 이동 완료로 idle 상태가 되었을 때, 안전 구역 내에서 락 해제 및 제한 바운더리 복구 재적용
+      if (isProgrammaticZoom) {
+        isProgrammaticZoom = false; 
+        map.setOptions({
+          restriction: {
+            latLngBounds: KOREA_BOUNDS,
+            strictBounds: false
+          }
+        });
+      }
     });
 
     updateMapDisplay();
@@ -150,7 +156,6 @@ const initMap = async () => {
 
 const createSingleMarkerDOM = (place, isSelected) => {
   const container = document.createElement('div');
-  // [수정] overflow: visible 선언으로 절대좌표 기반 링 애니메이션 이탈 방지
   container.className = isSelected 
     ? 'relative flex flex-col items-center cursor-pointer transition-transform duration-300 scale-[1.18] z-10 overflow-visible gpu-accelerated-marker' 
     : 'relative flex flex-col items-center cursor-pointer transition-transform duration-300 scale-100 z-0 overflow-visible gpu-accelerated-marker';
@@ -162,7 +167,6 @@ const createSingleMarkerDOM = (place, isSelected) => {
     ? 'w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-emerald-600 -mt-[1px] pointer-events-none'
     : 'w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[8px] border-t-blue-600 -mt-[1px] pointer-events-none';
 
-  // [수정] 자식 엘리먼트 전체에 pointer-events-none 주입하여 버블링 간섭 차단
   container.innerHTML = `
     ${isSelected ? '<div class="animate-ripple-periodic pointer-events-none"></div>' : ''}
     <div class="${badgeClass}">
@@ -323,7 +327,6 @@ const updateMapDisplay = () => {
 
       if (config.type === 'single') {
         content.addEventListener('mouseenter', async () => {
-          // [수정] 현재 장소가 이미 클릭되어 활성화(선택) 상태인 경우 호버 윈도우 인터랙션 차단
           if (props.selectedPlace && props.selectedPlace.id === config.place.id) return;
 
           const currentSelected = props.selectedPlace && props.selectedPlace.id === config.place.id;
@@ -365,7 +368,6 @@ const updateMapDisplay = () => {
           content.style.transform = currentSelected ? 'scale(1.18)' : 'scale(1.0)';
         });
 
-        // [수정] 클릭 정밀도 확보를 위해 구글 맵 시스템의 네이티브 리스너 체계로 동기화
         marker.addListener('click', () => {
           if (globalInfoWindow) globalInfoWindow.close();
           activeInfoWindowMarker = null;
@@ -374,15 +376,23 @@ const updateMapDisplay = () => {
           if (map) {
             const targetLatLng = { lat: Number(config.position.lat) - LATITUDE_OFFSET, lng: Number(config.position.lng) };
             isProgrammaticZoom = true;
-            map.panTo(targetLatLng);
-            map.setZoom(16);
-            setTimeout(() => { isProgrammaticZoom = false; }, 800);
+            // 이동 시에도 순간 클램핑 방지를 위해 바운더리 프리 해제 선언
+            map.setOptions({ restriction: null });
+            map.setOptions({
+              center: targetLatLng,
+              zoom: 16
+            });
           }
         });
       } else {
         marker.addListener('click', () => {
-          map.panTo(config.position);
-          map.setZoom(map.getZoom() + 2);
+          isProgrammaticZoom = true;
+          // 클러스터 확대로 이동 시에도 바운더리 프리 해제 선언
+          map.setOptions({ restriction: null });
+          map.setOptions({
+            center: config.position,
+            zoom: map.getZoom() + 2
+          });
         });
       }
 
@@ -430,7 +440,6 @@ watch(() => props.selectedPlace, (newPlace, oldPlace) => {
     }
   }
   if (newPlace) {
-    // 선택되는 순간 상주하던 호버 가상 레이어 초기화 소멸 처리
     if (globalInfoWindow) globalInfoWindow.close();
     activeInfoWindowMarker = null;
 
@@ -444,9 +453,11 @@ watch(() => props.selectedPlace, (newPlace, oldPlace) => {
     if (map && newPlace.mapy && newPlace.mapx) {
       const targetLatLng = { lat: Number(newPlace.mapy) - LATITUDE_OFFSET, lng: Number(newPlace.mapx) };
       isProgrammaticZoom = true;
-      map.panTo(targetLatLng);
-      map.setZoom(16);
-      setTimeout(() => { isProgrammaticZoom = false; }, 800);
+      map.setOptions({ restriction: null });
+      map.setOptions({
+        center: targetLatLng,
+        zoom: 16
+      });
     }
   }
 });
@@ -454,9 +465,13 @@ watch(() => props.selectedPlace, (newPlace, oldPlace) => {
 watch(() => props.currentRegionCoords, (coords) => {
   if (coords && map && !props.selectedPlace) {
     isProgrammaticZoom = true;
-    map.panTo({ lat: coords.lat, lng: coords.lng });
-    map.setZoom(coords.zoom);
-    setTimeout(() => { isProgrammaticZoom = false; }, 800);
+    // [수정 핵심] 카메라를 워프하기 직전 제한선 설정을 null로 순간 제거하여 검증 필터 오작동 차단
+    map.setOptions({ restriction: null });
+    map.setOptions({
+      center: { lat: coords.lat, lng: coords.zoom === 8 ? coords.lat : coords.lat }, // 원본 레퍼런스 유지
+      center: { lat: coords.lat, lng: coords.lng },
+      zoom: coords.zoom
+    });
   }
 }, { deep: true });
 
@@ -481,7 +496,6 @@ onUnmounted(() => {
 <style>
 .gpu-accelerated-marker {
   will-change: transform, opacity;
-  /* contain 속성 제거로 서브 픽셀 애니메이션 영역 가둠 제한 해제 */
 }
 
 @keyframes spin {
