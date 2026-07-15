@@ -1,3 +1,4 @@
+/* src/style.css 수정본 */
 @import "tailwindcss";
 
 @theme {
@@ -58,7 +59,14 @@
   --color-inverse-surface: #213145;
 }
 
-/* 커스텀 스크롤바 등 기존 컴포넌트 스타일은 이 아래에 그대로 작성합니다 */
+/* 격자 미세 패턴 디자인 */
+.bg-grid-pattern {
+  background-size: 20px 20px;
+  background-image: 
+    linear-gradient(to right, rgba(226, 232, 240, 0.4) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(226, 232, 240, 0.4) 1px, transparent 1px);
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
 }

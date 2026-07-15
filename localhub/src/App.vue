@@ -1,163 +1,540 @@
 <template>
-  <div class="bg-background-page text-on-surface h-screen flex flex-col overflow-hidden">
-    <header class="bg-surface-bright shadow-sm border-b border-border-subtle full-width top-0 z-50 flex-shrink-0">
-      <div class="flex justify-between items-center w-full px-4 md:px-8 max-w-[1280px] mx-auto h-16">
-        <div class="text-2xl font-bold text-tourism-vibrant flex items-center gap-2">
-          <span class="material-symbols-outlined">map_search</span>
-          LocalHub
-        </div>
-        <nav class="hidden md:flex gap-6 h-full items-center">
-          <a href="#" :class="[currentTab === 'explore' ? 'text-tourism-vibrant font-bold border-b-2 border-tourism-vibrant' : 'text-on-surface-variant hover:text-tourism-vibrant']" class="transition-colors text-base h-full flex items-center pt-0.5" @click.prevent="currentTab = 'explore'">지도 탐색</a>
-          <a href="#" :class="[currentTab === 'chat' ? 'text-tourism-vibrant font-bold border-b-2 border-tourism-vibrant' : 'text-on-surface-variant hover:text-tourism-vibrant']" class="transition-colors text-base h-full flex items-center pt-0.5" @click.prevent="currentTab = 'chat'">AI 가이드</a>
-        </nav>
-        <div class="flex items-center gap-2 text-xs bg-surface-container-low px-3 py-1.5 rounded-full border border-border-subtle">
-          <span class="w-2 h-2 rounded-full bg-community-emerald animate-pulse"></span>
-          <span class="text-on-surface-variant font-mono">ID: {{ clientId.substring(0, 8) }}...</span>
+  <div class="bg-background-page text-on-surface h-screen flex flex-col overflow-hidden font-body-md tracking-tight">
+    <header class="bg-white/80 backdrop-blur-md border-b border-border-subtle/50 w-full z-50 flex-shrink-0">
+      <div class="flex items-center w-full px-6 md:px-8 h-16">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 bg-tourism-vibrant rounded-lg flex items-center justify-center">
+            <span class="material-symbols-outlined text-white text-[20px]">explore</span>
+          </div>
+          <div class="text-2xl font-bold tracking-tighter text-on-surface select-none">
+            Local<span class="text-tourism-vibrant">Hub</span>
+          </div>
         </div>
       </div>
     </header>
 
-    <main class="flex-grow flex flex-col md:flex-row overflow-hidden relative">
-      <Sidebar 
-        :posts="posts" 
-        @search="handleSearch" 
-        @filter-change="handleFilterChange" 
-        @open-create-modal="isCreateModalOpen = true"
-        @select-post="handleSelectPost"
-      />
+    <main class="flex-grow flex flex-col overflow-hidden relative">
       <MapArea 
         :tourism-places="tourismPlaces" 
-        :posts="posts" 
-        :selected-post="selectedPost"
-        @marker-click="handleSelectPost"
+        :selected-place="selectedPlace"
+        :current-region-coords="currentRegionCoords"
+        @place-click="handlePlaceClick"
+        @map-click="handleMapClick"
+        @map-drag="handleMapDrag"
       />
+
+      <div class="absolute top-6 left-6 right-6 md:right-auto md:w-[520px] z-[30] h-fit pointer-events-auto flex gap-2">
+        
+        <div class="relative flex-shrink-0 w-32">
+          <button 
+            @click.stop="isDropdownOpen = !isDropdownOpen"
+            class="w-full h-full bg-white/95 backdrop-blur-md border border-border-subtle/50 text-xs font-bold rounded-2xl px-4 py-4 shadow-xl flex items-center justify-between gap-1 cursor-pointer transition-all hover:border-tourism-vibrant focus:outline-none focus:ring-4 focus:ring-tourism-vibrant/10 select-none text-on-surface-variant"
+          >
+            <span>{{ selectedRegionLabel }}</span>
+            <span 
+              class="material-symbols-outlined text-outline text-[18px] transition-transform duration-200"
+              :class="{ 'rotate-180 text-tourism-vibrant': isDropdownOpen }"
+            >
+              keyboard_arrow_down
+            </span>
+          </button>
+
+          <div 
+            v-if="isDropdownOpen" 
+            class="absolute top-[110%] left-0 w-full bg-white/95 backdrop-blur-md border border-border-subtle/50 rounded-2xl shadow-2xl py-2 z-50 flex flex-col gap-0.5 animate-dropdown-fade"
+          >
+            <button
+              v-for="r in regions"
+              :key="r.value"
+              @click.stop="selectRegion(r.value)"
+              :class="[
+                CURRENT_REGION === r.value 
+                  ? 'text-tourism-vibrant font-extrabold bg-tourism-vibrant/5' 
+                  : 'text-on-surface-variant hover:bg-slate-50'
+              ]"
+              class="w-full text-left px-4 py-2.5 text-xs font-bold transition-colors flex items-center justify-between"
+            >
+              <span>{{ r.label }}</span>
+              <span v-if="CURRENT_REGION === r.value" class="material-symbols-outlined text-[14px] text-tourism-vibrant">check</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="relative group flex-grow">
+          <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline group-focus-within:text-tourism-vibrant transition-colors">search</span>
+          <input 
+            v-model="searchQuery" 
+            class="w-full bg-white/95 backdrop-blur-md border border-border-subtle/50 text-base font-medium rounded-2xl pl-12 pr-4 py-4 shadow-xl focus:outline-none focus:border-tourism-vibrant focus:ring-4 focus:ring-tourism-vibrant/10 transition-all placeholder:text-outline/60" 
+            placeholder="장소, 식당, 명소 검색..." 
+            type="text"
+            @input="handleSearch"
+          />
+        </div>
+      </div>
+
+      <div 
+        class="absolute top-[88px] left-6 right-6 md:top-6 md:left-[556px] md:right-6 z-[30] h-fit overflow-x-auto no-scrollbar py-2.5 -my-1.5 pointer-events-auto touch-pan-x" 
+        @wheel.prevent="handleWheel"
+      >
+        <div class="flex flex-nowrap gap-2 px-1 pr-4">
+          <button 
+            v-for="filter in filterOptions" 
+            :key="filter.value"
+            :class="[
+              activeFilter === filter.value 
+                ? 'bg-tourism-vibrant text-white shadow-lg shadow-tourism-vibrant/20 scale-105 border-tourism-vibrant' 
+                : 'bg-white/90 backdrop-blur-md text-on-surface-variant border border-border-subtle/50 hover:bg-slate-50'
+            ]"
+            class="flex-shrink-0 px-4 py-2.5 rounded-full text-xs font-bold transition-all duration-200 border flex items-center gap-1.5 cursor-pointer select-none"
+            @click="setFilter(filter.value)"
+          >
+            <span class="material-symbols-outlined text-[16px]">{{ getCategoryIcon(filter.value) }}</span>
+            <span>{{ filter.label }}</span>
+          </button>
+        </div>
+      </div>
+
+      <BottomSheet 
+        :selected-place="selectedPlace"
+        :posts="posts"
+        :selected-post="selectedPost"
+        :current-view="sheetView"
+        :is-loading="isLoading"
+        :is-expanded="isSheetExpanded"
+        :is-fully-expanded="isSheetFullyExpanded"
+        @change-view="handleViewChange"
+        @select-post="handleSelectPost"
+        @toggle-expand="toggleSheet"
+        @fully-expand="handleFullyExpand"
+        @clear-place-filter="clearPlaceFilter"
+        @submit-post="submitPost"
+        @update-post="handlePostUpdate"
+        @delete-post="handlePostDelete"
+        @add-comment="handleCommentSubmit"
+      />
+
+      <ChatWidget />
     </main>
-
-    <nav class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-4 py-2 shadow-lg bg-surface-container-lowest rounded-t-xl">
-      <a class="flex flex-col items-center justify-center text-on-surface-variant w-16 h-12" href="#" @click.prevent="currentTab = 'explore'">
-        <span class="material-symbols-outlined mb-1">map</span>
-        <span class="text-xs">탐색</span>
-      </a>
-      <a class="flex flex-col items-center justify-center text-on-surface-variant w-16 h-12" href="#" @click.prevent="isCreateModalOpen = true">
-        <span class="material-symbols-outlined mb-1">edit_square</span>
-        <span class="text-xs">글쓰기</span>
-      </a>
-      <a class="flex flex-col items-center justify-center text-on-surface-variant w-16 h-12" href="#" @click.prevent="currentTab = 'chat'">
-        <span class="material-symbols-outlined mb-1">smart_toy</span>
-        <span class="text-xs">챗봇</span>
-      </a>
-    </nav>
-
-    <CreatePostModal 
-      v-if="isCreateModalOpen" 
-      :client-id="clientId"
-      @close="isCreateModalOpen = false" 
-      @submit="submitPost"
-    />
-
-    <PostDetailModal 
-      v-if="selectedPost" 
-      :post="selectedPost" 
-      :client-id="clientId"
-      @close="selectedPost = null"
-      @like="handleLike"
-      @bookmark="handleBookmark"
-      @add-comment="handleCommentSubmit"
-    />
-    
-    <ChatWidget />
   </div>
 </template>
 
-<style scoped></style>
-
 <script setup>
-import { ref, onMounted } from 'vue';
-import Sidebar from './components/Sidebar.vue';
+import { ref, computed, onMounted } from 'vue';
 import MapArea from './components/MapArea.vue';
-import CreatePostModal from './components/CreatePostModal.vue';
-import PostDetailModal from './components/PostDetailModal.vue';
-import ChatWidget from "@/chat/components/ChatWidget.vue";
+import BottomSheet from './components/BottomSheet.vue';
+import ChatWidget from './chat/components/ChatWidget.vue';
+import api from './api'; 
 
-const currentTab = ref('explore');
-const clientId = ref('');
-const isCreateModalOpen = ref(false);
+// 5대 권역 정보 및 중심 좌표 매핑 정의
+const regions = [
+  { label: '전국', value: null, lat: 36.2684, lng: 127.8482, zoom: 8 },
+  { label: '서울', value: '서울', lat: 37.5665, lng: 126.9780, zoom: 12 },
+  { label: '부산', value: '부산', lat: 35.1796, lng: 129.0756, zoom: 12 },
+  { label: '대전/충청', value: '대전_충청권', lat: 36.3504, lng: 127.3845, zoom: 11 },
+  { label: '구미/경북', value: '구미_경북권', lat: 36.1194, lng: 128.3445, zoom: 11 },
+  { label: '광주/전라', value: '광주_전라권', lat: 35.1595, lng: 126.8526, zoom: 11 }
+];
+
+const CURRENT_REGION = ref(null);
+const isDropdownOpen = ref(false);
+
 const selectedPost = ref(null);
+const selectedPlace = ref(null);
+const searchQuery = ref('');
+const isLoading = ref(false);
+
+const isSheetExpanded = ref(false);
+const isSheetFullyExpanded = ref(false);
+
+const activeFilter = ref('all');
+const filterOptions = ref([{ label: '전체', value: 'all' }]);
 
 const posts = ref([]);
 const tourismPlaces = ref([]);
+const sheetView = ref('feed');
 
-// 고유 식별값(client_id) 할당 로직
-const initSession = () => {
-  let id = localStorage.getItem('local_connect_client_id');
-  if (!id) {
-    id = 'client_' + Math.random().toString(36).substring(2, 11);
-    localStorage.setItem('local_connect_client_id', id);
-  }
-  clientId.value = id;
-};
-
-const loadData = () => {
-  posts.value = [
-    { id: 1, title: '경복궁 야간 개장 다녀왔어요!', content: '조명이 너무 예뻤어요. 예매 팁 하나 공유하자면 꼭 한복 입고 가세요!', nickname: '익명 사용자', likes: 24, bookmarks: 5, category: '관광 명소', comments: [], mapx: 126.9768, mapy: 37.5776 },
-    { id: 2, title: '해운대 근처 숨겨진 국밥집', content: '바닷가 쪽 말고 골목 안쪽으로 들어가면 현지인들만 아는 찐 국밥집 있어요.', nickname: '부산토박이', likes: 56, bookmarks: 12, category: '맛집 / 카페', comments: [], mapx: 129.1586, mapy: 35.1587 }
-  ];
-
-  tourismPlaces.value = [
-    { id: 101, title: '경복궁', mapx: 126.9768, mapy: 37.5776, content_type: '관광 명소' },
-    { id: 102, title: '해운대 해수욕장', mapx: 129.1586, mapy: 35.1587, content_type: '관광 명소' }
-  ];
-};
-
-const handleSearch = (q) => { console.log('검색 쿼리 실행 (GET /api/posts/search?q=):', q); };
-const handleFilterChange = (filter) => { console.log('필터 변경:', filter); };
-const handleSelectPost = (post) => { selectedPost.value = post; };
-
-const submitPost = (formData) => {
-  // POST /api/posts (multipart/form-data) 요청 처리 모킹
-  const newPost = {
-    id: posts.value.length + 1,
-    title: formData.get('title'),
-    content: formData.get('content'),
-    nickname: formData.get('nickname'),
-    likes: 0,
-    bookmarks: 0,
-    category: '일반',
-    comments: [],
-    mapx: 126.9768 + (Math.random() - 0.5) * 0.02,
-    mapy: 37.5776 + (Math.random() - 0.5) * 0.02
-  };
-  posts.value.unshift(newPost);
-  isCreateModalOpen.value = false;
-};
-
-const handleLike = (postId) => {
-  // POST /api/posts/{post_id}/like?client_id=
-  const post = posts.value.find(p => p.id === postId);
-  if (post) post.likes++;
-};
-
-const handleBookmark = (postId) => {
-  // POST /api/posts/{post_id}/bookmark?client_id=
-  const post = posts.value.find(p => p.id === postId);
-  if (post) post.bookmarks++;
-};
-
-const handleCommentSubmit = ({ postId, commentData }) => {
-  // POST /api/posts/{post_id}/comments
-  const post = posts.value.find(p => p.id === postId);
-  if (post) {
-    post.comments.push({
-      id: post.comments.length + 1,
-      nickname: commentData.nickname,
-      content: commentData.content,
-      parent_id: commentData.parent_id
-    });
-  }
-};
-
-onMounted(() => {
-  initSession();
-  loadData();
+// 활성화 권역에 따른 좌표 및 줌 레벨 반환
+const currentRegionCoords = computed(() => {
+  const target = regions.find(r => r.value === CURRENT_REGION.value);
+  return target ? { lat: target.lat, lng: target.lng, zoom: target.zoom } : { lat: 36.2684, lng: 127.8482, zoom: 8 };
 });
+
+// 활성화 권역에 대응하는 화면 표시용 텍스트 반환
+const selectedRegionLabel = computed(() => {
+  const target = regions.find(r => r.value === CURRENT_REGION.value);
+  return target ? target.label : '전국';
+});
+
+const getCategoryIcon = (value) => {
+  const iconMap = {
+    'all': 'grid_view',
+    12: 'tour',           
+    14: 'museum',         
+    15: 'festival',       
+    25: 'route',          
+    28: 'surfing',        
+    32: 'hotel',          
+    38: 'shopping_bag',   
+    39: 'restaurant'      
+  };
+  return iconMap[value] || 'pin_drop';
+};
+
+const fetchCategories = async () => {
+  try {
+    const response = await api.get('/categories', {
+      params: { region: CURRENT_REGION.value }
+    });
+    const data = response.data;
+    
+    const categoriesSource = data.items ? data.items : data;
+    let dynamicCategories = [];
+
+    if (Array.isArray(categoriesSource)) {
+      dynamicCategories = categoriesSource.map(item => ({
+        label: item.content_type || item.name || item.label || item.title || String(item),
+        value: item.content_type_id || item.id || item.value || item
+      }));
+    } else if (typeof categoriesSource === 'object' && categoriesSource !== null) {
+      dynamicCategories = Object.entries(categoriesSource).map(([name, id]) => ({
+        label: name,
+        value: id
+      }));
+    }
+    
+    filterOptions.value = [{ label: '전체', value: 'all' }, ...dynamicCategories];
+  } catch (error) {
+    console.error('카테고리 API 조회 실패:', error);
+  }
+};
+
+const fetchPlaces = async () => {
+  try {
+    isLoading.value = true;
+    const params = { region: CURRENT_REGION.value };
+    
+    if (activeFilter.value !== 'all') {
+      params.content_type_id = activeFilter.value;
+    }
+    if (searchQuery.value.trim()) {
+      params.q = searchQuery.value.trim();
+    }
+
+    const response = await api.get('/places', { params });
+    const data = response.data;
+
+    tourismPlaces.value = data.map(place => ({
+      id: place.id,
+      title: place.title,
+      mapx: place.mapx,
+      mapy: place.mapy,
+      content_type: place.content_type,
+      content_type_id: place.content_type_id,
+      addr1: place.addr1,
+      tel: place.tel,
+      rating: place.rating || 4.5,
+      image: place.firstimage || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500', 
+      feedCount: place.feedCount || 0
+    }));
+  } catch (error) {
+    console.error('장소 API 조회 실패:', error);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const handleRegionChange = async () => {
+  activeFilter.value = 'all'; 
+  selectedPlace.value = null; 
+  selectedPost.value = null;
+  sheetView.value = 'feed';
+  
+  await fetchCategories();
+  await fetchPlaces();
+};
+
+const selectRegion = async (regionValue) => {
+  CURRENT_REGION.value = regionValue;
+  isDropdownOpen.value = false;
+  await handleRegionChange();
+};
+
+const fetchPostsByPlace = async (placeId) => {
+  try {
+    isLoading.value = true;
+    const response = await api.get(`/places/${placeId}/posts`, {
+      params: { sort: 'latest', page: 1, size: 50 }
+    });
+    const data = response.data;
+
+    const postsSource = data.items ? data.items : (Array.isArray(data) ? data : []);
+
+    posts.value = postsSource.map(post => ({
+      id: post.id,
+      placeId: post.place_id,
+      title: post.title,
+      content: post.content,
+      nickname: post.nickname,
+      likes: post.likes || 0,
+      bookmarks: post.bookmarks || 0,
+      category: selectedPlace.value ? selectedPlace.value.title : '일반',
+      comments: post.comments || []
+    }));
+  } catch (error) {
+    console.error('게시글 API 조회 실패:', error);
+    posts.value = [];
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const submitPost = async (postData) => {
+  try {
+    const formData = new FormData();
+    formData.append('place_id', selectedPlace.value ? selectedPlace.value.id : 101);
+    formData.append('title', postData.title);
+    formData.append('content', postData.content);
+    formData.append('nickname', postData.nickname || '익명');
+    formData.append('password', postData.password || '1234'); 
+
+    await api.post('/posts', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+
+    sheetView.value = 'feed';
+    if (selectedPlace.value) {
+      await fetchPostsByPlace(selectedPlace.value.id);
+    }
+  } catch (error) {
+    console.error('게시글 생성 에러:', error);
+  }
+};
+
+const handleCommentSubmit = async ({ postId, comment }) => {
+  try {
+    await api.post(`/posts/${postId}/comments`, {
+      nickname: comment.nickname || '익명',
+      content: comment.content,
+      parent_id: comment.parent_id || null 
+    });
+
+    const response = await api.get(`/posts/${postId}`);
+    const detailData = response.data;
+
+    const updatedPost = {
+      id: detailData.id,
+      placeId: detailData.place_id,
+      title: detailData.title,
+      content: detailData.content,
+      nickname: detailData.nickname,
+      likes: detailData.likes || 0,
+      bookmarks: detailData.bookmarks || 0,
+      category: selectedPlace.value ? selectedPlace.value.title : '일반',
+      comments: detailData.comments || []
+    };
+
+    selectedPost.value = updatedPost;
+
+    if (selectedPlace.value) {
+      await fetchPostsByPlace(selectedPlace.value.id);
+    }
+  } catch (error) {
+    console.error('댓글 생성 에러:', error);
+  }
+};
+
+const handlePostUpdate = async ({ postId, postData }) => {
+  try {
+    isLoading.value = true;
+    await api.put(`/posts/${postId}`, {
+      password: postData.password,
+      place_id: selectedPlace.value ? selectedPlace.value.id : null,
+      title: postData.title,
+      content: postData.content,
+      nickname: postData.nickname
+    });
+
+    sheetView.value = 'feed';
+    selectedPost.value = null;
+    if (selectedPlace.value) {
+      await fetchPostsByPlace(selectedPlace.value.id);
+    }
+  } catch (error) {
+    alert('비밀번호가 올바르지 않거나 수정 권한이 없습니다.');
+    console.error('게시글 수정 실패:', error);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const handlePostDelete = async ({ postId, password }) => {
+  try {
+    isLoading.value = true;
+    await api.delete(`/posts/${postId}`, {
+      params: { password }
+    });
+
+    sheetView.value = 'feed';
+    selectedPost.value = null;
+    if (selectedPlace.value) {
+      await fetchPostsByPlace(selectedPlace.value.id);
+    }
+  } catch (error) {
+    alert('비밀번호가 올바르지 않거나 삭제 권한이 없습니다.');
+    console.error('게시글 삭제 실패:', error);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+const handleLike = async (postId) => {
+  try {
+    await api.post(`/posts/${postId}/like`);
+    const post = posts.value.find(p => p.id === postId);
+    if (post) post.likes++;
+  } catch (error) {
+    console.error('좋아요 토글 실패:', error);
+  }
+};
+
+const handleBookmark = async (postId) => {
+  try {
+    await api.post(`/posts/${postId}/bookmark`);
+    const post = posts.value.find(p => p.id === postId);
+    if (post) post.bookmarks++;
+  } catch (error) {
+    console.error('북마크 토글 실패:', error);
+  }
+};
+
+const handlePlaceClick = (place) => {
+  selectedPlace.value = place;
+  sheetView.value = 'feed';
+  selectedPost.value = null;
+  isSheetExpanded.value = true; 
+  isSheetFullyExpanded.value = false;
+  fetchPostsByPlace(place.id);
+};
+
+const setFilter = (filterValue) => {
+  activeFilter.value = filterValue;
+  fetchPlaces();
+};
+
+let searchTimeout = null;
+const handleSearch = () => {
+  clearTimeout(searchTimeout);
+  searchTimeout = setTimeout(() => {
+    fetchPlaces();
+  }, 300);
+};
+
+const handleMapClick = () => {
+  isDropdownOpen.value = false; 
+  selectedPlace.value = null;
+  selectedPost.value = null;
+  sheetView.value = 'feed';
+  isSheetExpanded.value = false;
+  isSheetFullyExpanded.value = false;
+};
+
+const handleMapDrag = () => {
+  isDropdownOpen.value = false;
+  if (selectedPlace.value) {
+    isSheetExpanded.value = false;
+    isSheetFullyExpanded.value = false;
+  }
+};
+
+const toggleSheet = () => {
+  if (isSheetFullyExpanded.value) {
+    isSheetFullyExpanded.value = false;
+    isSheetExpanded.value = true;
+  } else {
+    isSheetExpanded.value = !isSheetExpanded.value;
+  }
+};
+
+const handleFullyExpand = (status) => {
+  isSheetFullyExpanded.value = status;
+};
+
+const clearPlaceFilter = () => {
+  selectedPlace.value = null;
+  selectedPost.value = null;
+  sheetView.value = 'feed';
+  isSheetExpanded.value = false; 
+  isSheetFullyExpanded.value = false;
+};
+
+const handleViewChange = (view) => {
+  sheetView.value = view;
+  if (view === 'feed') {
+    selectedPost.value = null;
+  }
+};
+
+const handleSelectPost = async (post) => {
+  try {
+    isLoading.value = true;
+    const response = await api.get(`/posts/${post.id}`);
+    const detailData = response.data;
+
+    selectedPost.value = {
+      id: detailData.id,
+      placeId: detailData.place_id,
+      title: detailData.title,
+      content: detailData.content,
+      nickname: detailData.nickname,
+      likes: detailData.likes || 0,
+      bookmarks: detailData.bookmarks || 0,
+      category: selectedPlace.value ? selectedPlace.value.title : '일반',
+      comments: detailData.comments || []
+    };
+    sheetView.value = 'detail';
+  } catch (error) {
+    console.error('게시글 상세 정보 로드 실패:', error);
+  } finally {
+    isLoading.value = false;
+  }
+};
+
+onMounted(async () => {
+  await fetchCategories();
+  await fetchPlaces();
+});
+
+const handleWheel = (e) => {
+  const container = e.currentTarget;
+  if (container) {
+    container.scrollLeft += e.deltaY;
+  }
+};
 </script>
+
+<style scoped>
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;  
+  scrollbar-width: none;  
+}
+
+@keyframes dropdown-fade {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-dropdown-fade {
+  animation: dropdown-fade 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+</style>

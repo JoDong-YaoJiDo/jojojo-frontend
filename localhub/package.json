@@ -13,6 +13,8 @@
     "format": "prettier --write --experimental-cli src/"
   },
   "dependencies": {
+    "@googlemaps/js-api-loader": "^2.1.1",
+    "@googlemaps/markerclusterer": "^2.6.2",
     "@tailwindcss/vite": "^4.3.2",
     "axios": "^1.18.1",
     "pinia": "^3.0.4",
