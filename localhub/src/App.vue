@@ -1,7 +1,7 @@
 <template>
   <div class="bg-background-page text-on-surface h-screen flex flex-col overflow-hidden font-body-md tracking-tight">
     <header class="bg-white/80 backdrop-blur-md border-b border-border-subtle/50 w-full z-50 flex-shrink-0">
-      <div class="flex items-center w-full px-6 md:px-8 h-16">
+      <div class="flex items-center justify-between w-full px-6 md:px-8 h-16">
         <div class="flex items-center gap-2">
           <img
             src="/logo.png"
@@ -9,6 +9,13 @@
             class="h-10 w-auto object-contain select-none"
           />
         </div>
+        <button 
+          @click="isAttributionOpen = true"
+          class="text-on-surface-variant hover:text-on-surface bg-slate-50 hover:bg-slate-100 border border-border-subtle/40 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer focus:outline-none"
+        >
+          <span class="material-symbols-outlined text-[16px]">database</span>
+          <span>데이터 출처</span>
+        </button>
       </div>
     </header>
 
@@ -23,7 +30,6 @@
       />
 
       <div class="absolute top-6 left-6 right-6 md:right-auto md:w-[520px] z-[30] h-fit pointer-events-auto flex gap-2">
-        
         <div class="relative flex-shrink-0 w-32">
           <button 
             @click.stop="isDropdownOpen = !isDropdownOpen"
@@ -107,12 +113,18 @@
         @fully-expand="handleFullyExpand"
         @clear-place-filter="clearPlaceFilter"
         @submit-post="submitPost"
-        @update-post="handlePostUpdate" @delete-post="handlePostDelete"
+        @update-post="handlePostUpdate" 
+        @delete-post="handlePostDelete"
         @add-comment="handleCommentSubmit"
       />
 
       <ChatWidget :current-region-label="selectedRegionLabel" />
     </main>
+
+    <AttributionModal 
+      v-if="isAttributionOpen" 
+      @close="isAttributionOpen = false" 
+    />
   </div>
 </template>
 
@@ -121,6 +133,7 @@ import { ref, computed, onMounted } from 'vue';
 import MapArea from './components/MapArea.vue';
 import BottomSheet from './components/BottomSheet.vue';
 import ChatWidget from './chat/components/ChatWidget.vue';
+import AttributionModal from './components/AttributionModal.vue'; // [추가] 모달 컴포넌트 임포트
 import api from './api'; 
 
 const regions = [
@@ -134,6 +147,7 @@ const regions = [
 
 const CURRENT_REGION = ref(null);
 const isDropdownOpen = ref(false);
+const isAttributionOpen = ref(false); // [추가] 모달의 활성화 제어 반응형 상태 선언
 
 const selectedPost = ref(null);
 const selectedPlace = ref(null);
@@ -203,7 +217,6 @@ const fetchCategories = async () => {
   }
 };
 
-// [수정] 대용량 /places 대신 4개 필드만 전송받는 /all-places API 호출로 최적화
 const fetchPlaces = async () => {
   try {
     isLoading.value = true;
@@ -216,11 +229,9 @@ const fetchPlaces = async () => {
       params.q = searchQuery.value.trim();
     }
 
-    // 호출 엔드포인트 변경
     const response = await api.get('/all-places', { params });
     const data = response.data;
 
-    // 초기 지도 렌더링에 필요한 핵심 좌표 정보만 경량 데이터셋으로 매핑
     tourismPlaces.value = data.map(place => ({
       id: place.id,
       title: place.title,
@@ -266,17 +277,17 @@ const fetchPostsByPlace = async (placeId) => {
       title: post.title,
       content: post.content,
       nickname: post.nickname,
-      likes: post.like_count || 0,      // 백엔드 스펙 매핑 (like_count)
-      bookmarks: post.bookmark_count || 0, // 백엔드 스펙 매핑 (bookmark_count)
+      likes: post.like_count || 0,
+      bookmarks: post.bookmark_count || 0,
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
-      created_at: post.created_at,      // 소식 생성 시간 파이프라인 연결
+      created_at: post.created_at,
       comments: (post.comments || []).map(c => ({
         id: c.id,
         post_id: c.post_id,
         parent_id: c.parent_id,
         nickname: c.nickname,
         content: c.content,
-        created_at: c.created_at,       // 댓글 생성 시간 파이프라인 연결
+        created_at: c.created_at,
         replies: c.replies || []
       }))
     }));
@@ -332,14 +343,14 @@ const handleCommentSubmit = async ({ postId, comment }) => {
       likes: detailData.like_count || 0,
       bookmarks: detailData.bookmark_count || 0,
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
-      created_at: detailData.created_at, // 소식 생성 시간 동기화
+      created_at: detailData.created_at,
       comments: (detailData.comments || []).map(c => ({
         id: c.id,
         post_id: c.post_id,
         parent_id: c.parent_id,
         nickname: c.nickname,
         content: c.content,
-        created_at: c.created_at,       // 댓글 생성 시간 동기화
+        created_at: c.created_at,
         replies: c.replies || []
       }))
     };
@@ -356,7 +367,6 @@ const handlePostUpdate = async ({ postId, postData }) => {
   try {
     isLoading.value = true;
 
-    // 모달을 통해 수집한 검증용 비밀번호를 API 페이로드에 적재
     await api.put(`/posts/${postId}`, {
       title: postData.title,
       content: postData.content,
@@ -364,17 +374,13 @@ const handlePostUpdate = async ({ postId, postData }) => {
       password: postData.password 
     });
 
-    // 수정 완료 후 상세 데이터 재조회 및 화면 전환
     await handleSelectPost({ id: postId });
     
-    // 목록 갱신
     if (selectedPlace.value) {
       await fetchPostsByPlace(selectedPlace.value.id);
     }
   } catch (error) {
     console.error('소식 수정 오류:', error);
-    
-    // 비밀번호 오류 예외 분기
     if (error.response && (error.response.status === 401 || error.response.status === 403)) {
       alert('비밀번호가 일치하지 않습니다.');
     } else {
@@ -425,24 +431,19 @@ const handleBookmark = async (postId) => {
   }
 };
 
-// [수정] 마커 클릭 시 즉시 UI 반응성을 확보하고, 상세 정보 및 피드를 비동기 병렬 요청하여 BottomSheet를 보완함
 const handlePlaceClick = async (place) => {
-  // 1. 최소 데이터 기반으로 상태 변경하여 레이아웃 즉각 출력
   selectedPlace.value = place;
   sheetView.value = 'feed';
   selectedPost.value = null;
   isSheetExpanded.value = true; 
   isSheetFullyExpanded.value = false;
 
-  // 2. 관련 게시물 목록을 백그라운드 호출
   fetchPostsByPlace(place.id);
 
-  // 3. BottomSheet의 세부 렌더링에 필요한 상세 스펙을 비동기로 패치 후 바인딩 결합
   try {
     const response = await api.get('/details', { params: { place_id: place.id } });
     const detail = response.data;
     
-    // 기존 간이 객체(id, title, mapx, mapy)에 주소, 연락처, 이미지 등의 상세 프로퍼티 병합
     selectedPlace.value = {
       ...place,
       addr1: detail.addr1,
@@ -529,14 +530,14 @@ const handleSelectPost = async (post) => {
       likes: detailData.like_count || 0,
       bookmarks: detailData.bookmark_count || 0,
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
-      created_at: detailData.created_at, // 소식 생성 시간 동기화
+      created_at: detailData.created_at,
       comments: (detailData.comments || []).map(c => ({
         id: c.id,
         post_id: c.post_id,
         parent_id: c.parent_id,
         nickname: c.nickname,
         content: c.content,
-        created_at: c.created_at,       // 댓글 생성 시간 동기화
+        created_at: c.created_at,
         replies: c.replies || []
       }))
     };
