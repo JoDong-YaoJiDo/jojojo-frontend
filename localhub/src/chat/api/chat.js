@@ -3,10 +3,10 @@ const USE_MOCK = true;
 
 const api = axios.create({
   // 개발 중
-  baseURL: "http://localhost:8000",
+  // baseURL: "http://localhost:8000",
 
   // 배포 후
-  // baseURL: import.meta.env.VITE_API_URL,
+  baseURL: import.meta.env.VITE_API_URL,
   timeout: 30000,
 });
 
