@@ -125,7 +125,6 @@ import BottomSheet from './components/BottomSheet.vue';
 import ChatWidget from './chat/components/ChatWidget.vue';
 import api from './api'; 
 
-// 5대 권역 정보 및 중심 좌표 매핑 정의
 const regions = [
   { label: '전국', value: null, lat: 36.2684, lng: 127.8482, zoom: 8 },
   { label: '서울', value: '서울', lat: 37.5665, lng: 126.9780, zoom: 12 },
@@ -153,13 +152,11 @@ const posts = ref([]);
 const tourismPlaces = ref([]);
 const sheetView = ref('feed');
 
-// 활성화 권역에 따른 좌표 및 줌 레벨 반환
 const currentRegionCoords = computed(() => {
   const target = regions.find(r => r.value === CURRENT_REGION.value);
   return target ? { lat: target.lat, lng: target.lng, zoom: target.zoom } : { lat: 36.2684, lng: 127.8482, zoom: 8 };
 });
 
-// 활성화 권역에 대응하는 화면 표시용 텍스트 반환
 const selectedRegionLabel = computed(() => {
   const target = regions.find(r => r.value === CURRENT_REGION.value);
   return target ? target.label : '전국';
@@ -208,6 +205,7 @@ const fetchCategories = async () => {
   }
 };
 
+// [수정] 대용량 /places 대신 4개 필드만 전송받는 /all-places API 호출로 최적화
 const fetchPlaces = async () => {
   try {
     isLoading.value = true;
@@ -220,21 +218,16 @@ const fetchPlaces = async () => {
       params.q = searchQuery.value.trim();
     }
 
-    const response = await api.get('/places', { params });
+    // 호출 엔드포인트 변경
+    const response = await api.get('/all-places', { params });
     const data = response.data;
 
+    // 초기 지도 렌더링에 필요한 핵심 좌표 정보만 경량 데이터셋으로 매핑
     tourismPlaces.value = data.map(place => ({
       id: place.id,
       title: place.title,
       mapx: place.mapx,
-      mapy: place.mapy,
-      content_type: place.content_type,
-      content_type_id: place.content_type_id,
-      addr1: place.addr1,
-      tel: place.tel,
-      rating: place.rating || 4.5,
-      image: place.firstimage || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500', 
-      feedCount: place.feedCount || 0
+      mapy: place.mapy
     }));
   } catch (error) {
     console.error('장소 API 조회 실패:', error);
@@ -409,13 +402,35 @@ const handleBookmark = async (postId) => {
   }
 };
 
-const handlePlaceClick = (place) => {
+// [수정] 마커 클릭 시 즉시 UI 반응성을 확보하고, 상세 정보 및 피드를 비동기 병렬 요청하여 BottomSheet를 보완함
+const handlePlaceClick = async (place) => {
+  // 1. 최소 데이터 기반으로 상태 변경하여 레이아웃 즉각 출력
   selectedPlace.value = place;
   sheetView.value = 'feed';
   selectedPost.value = null;
   isSheetExpanded.value = true; 
   isSheetFullyExpanded.value = false;
+
+  // 2. 관련 게시물 목록을 백그라운드 호출
   fetchPostsByPlace(place.id);
+
+  // 3. BottomSheet의 세부 렌더링에 필요한 상세 스펙을 비동기로 패치 후 바인딩 결합
+  try {
+    const response = await api.get('/details', { params: { place_id: place.id } });
+    const detail = response.data;
+    
+    // 기존 간이 객체(id, title, mapx, mapy)에 주소, 연락처, 이미지 등의 상세 프로퍼티 병합
+    selectedPlace.value = {
+      ...place,
+      addr1: detail.addr1,
+      tel: detail.tel,
+      rating: detail.rating || 4.5,
+      image: detail.firstimage || detail.image || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500',
+      feedCount: detail.feedCount || 0
+    };
+  } catch (error) {
+    console.error('클릭 장소 상세 로드 실패:', error);
+  }
 };
 
 const setFilter = (filterValue) => {
