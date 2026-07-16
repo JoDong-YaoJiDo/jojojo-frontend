@@ -82,7 +82,7 @@
                 <div class="flex items-center gap-3">
                   <span class="text-xs text-on-surface/40 font-bold flex items-center gap-1.5">
                     <span class="material-symbols-outlined text-[18px]">chat_bubble</span> 
-                    댓글 {{ post.comments ? post.comments.length : 0 }}
+                    댓글 {{ post.comment_count || (post.comments ? post.comments.length : 0) }}
                   </span>
                   <span class="text-xs text-on-surface/40 font-bold flex items-center gap-1.5">
                     <span class="material-symbols-outlined text-[18px]">visibility</span> 
@@ -172,7 +172,9 @@
           </div>
 
           <div>
-            <h3 class="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">댓글 {{ selectedPost.comments ? selectedPost.comments.length : 0 }}</h3>
+            <h3 class="text-xs font-bold text-slate-400 mb-4 uppercase tracking-wider">
+              댓글 {{ selectedPost.comment_count || (selectedPost.comments ? selectedPost.comments.length : 0) }}
+            </h3>
             
             <form @submit.prevent="submitComment" class="bg-white rounded-xl p-4 border border-slate-200 shadow-sm flex flex-col gap-3 mb-6">
               <div v-if="replyTarget" class="flex justify-between items-center bg-slate-50 px-3 py-1.5 rounded-lg text-[11px] text-tourism-vibrant font-semibold">
@@ -369,7 +371,7 @@ const triggerLikeClick = () => {
   emit('like-post', postId);
 };
 
-// 백엔드 relative image_path 파싱 파이프라인
+// 백엔드 루트 도메인 매핑 및 /api 서브 디렉토리 제거 파이프라인
 const getImageUrl = (img) => {
   if (!img) return '';
   if (typeof img === 'string') return img;
@@ -379,11 +381,8 @@ const getImageUrl = (img) => {
   if (path.startsWith('http')) return path;
   
   const baseUrl = api.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/'; 
-  
-  // 정규식을 활용하여 주소 끝단에 매칭되는 /api 혹은 /api/ 서브 경로 제거
   const rootUrl = baseUrl.replace(/\/api\/?$/, '');
   
-  // 주소 연결 부 슬래시(/) 중복 및 유실 예외 처리
   const cleanBaseUrl = rootUrl.endsWith('/') ? rootUrl : `${rootUrl}/`;
   const cleanPath = path.startsWith('/') ? path.substring(1) : path;
   

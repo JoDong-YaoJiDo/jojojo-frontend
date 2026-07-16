@@ -165,6 +165,26 @@ const posts = ref([]);
 const tourismPlaces = ref([]);
 const sheetView = ref('feed');
 
+// [캐시 버퍼] 댓글 개수 보존용 로컬 스토어 캐시
+const commentCountsCache = ref({});
+
+// [헬퍼] 자식 답글(replies/children)을 재귀 순회하여 총 댓글 수 합산
+const calculateTotalComments = (comments) => {
+  if (!Array.isArray(comments)) return 0;
+  let total = 0;
+  const traverse = (list) => {
+    list.forEach(item => {
+      total++;
+      const children = item.replies || item.children;
+      if (Array.isArray(children) && children.length > 0) {
+        traverse(children);
+      }
+    });
+  };
+  traverse(comments);
+  return total;
+};
+
 const currentRegionCoords = computed(() => {
   const target = regions.find(r => r.value === CURRENT_REGION.value);
   return target ? { lat: target.lat, lng: target.lng, zoom: target.zoom } : { lat: 36.2684, lng: 127.8482, zoom: 8 };
@@ -175,7 +195,6 @@ const selectedRegionLabel = computed(() => {
   return target ? target.label : '전국';
 });
 
-// 좋아요 처리를 위한 로컬 단말기 식별 키 발급 및 로드
 const getClientId = () => {
   let id = localStorage.getItem('jodong_client_id');
   if (!id) {
@@ -282,28 +301,53 @@ const fetchPostsByPlace = async (placeId) => {
 
     const postsSource = data.items ? data.items : (Array.isArray(data) ? data : []);
 
-    posts.value = postsSource.map(post => ({
-      id: post.id,
-      placeId: post.place_id,
-      title: post.title,
-      content: post.content,
-      nickname: post.nickname,
-      likes: post.like_count || post.likes || 0,
-      bookmarks: post.bookmark_count || 0,
-      views: post.views || post.view_count || 0, // [수정] 조회수 바인딩 추가
-      images: post.images || [],                 // [수정] 다중 이미지 필드 링킹
-      category: selectedPlace.value ? selectedPlace.value.title : '일반',
-      created_at: post.created_at,
-      comments: (post.comments || []).map(c => ({
-        id: c.id,
-        post_id: c.post_id,
-        parent_id: c.parent_id,
-        nickname: c.nickname,
-        content: c.content,
-        created_at: c.created_at,
-        replies: c.replies || []
-      }))
-    }));
+    // 1단계: 기본 맵 렌더링을 위한 기본 필드 매핑 진행
+    posts.value = postsSource.map(post => {
+      const cachedCount = commentCountsCache.value[post.id];
+      const resolvedCommentCount = cachedCount !== undefined ? cachedCount : 0;
+
+      return {
+        id: post.id,
+        placeId: post.place_id,
+        title: post.title,
+        content: post.content,
+        nickname: post.nickname,
+        likes: post.like_count || post.likes || 0,
+        bookmarks: post.bookmark_count || 0,
+        views: post.views || post.view_count || 0,
+        images: post.images || [],                 
+        comment_count: resolvedCommentCount, 
+        category: selectedPlace.value ? selectedPlace.value.title : '일반',
+        created_at: post.created_at,
+        comments: []
+      };
+    });
+
+    // 2단계 (초기 0 노출 보완): 백엔드 API 목록에 댓글 필드가 생략되어 수신되므로,
+    // 병렬 상세 조회를 백그라운드로 즉시 가동하여 실시간 대댓글 합산 연산 후 posts 및 캐시 업데이트
+    const detailPromises = posts.value.map(async (p) => {
+      try {
+        const detailRes = await api.get(`/posts/${p.id}`);
+        const detailData = detailRes.data;
+        const totalCount = calculateTotalComments(detailData.comments);
+
+        // 캐시 업데이트
+        commentCountsCache.value[p.id] = totalCount;
+
+        // UI 뷰포트 데이터 실시간 매핑 주입
+        const targetPost = posts.value.find(item => item.id === p.id);
+        if (targetPost) {
+          targetPost.comment_count = totalCount;
+          targetPost.comments = detailData.comments || [];
+        }
+      } catch (err) {
+        console.error(`상세 조회 병렬 동기화 누락 (ID: ${p.id}):`, err);
+      }
+    });
+
+    // 백그라운드 스레드로 비동기 병렬 요청 방출
+    Promise.all(detailPromises);
+
   } catch (error) {
     console.error('게시글 API 조회 실패:', error);
     posts.value = [];
@@ -322,7 +366,6 @@ const submitPost = async (postData) => {
     formData.append('nickname', postData.nickname || '익명');
     formData.append('password', postData.password || '1234'); 
 
-    // [수정] multipart/form-data 다중 이미지 업로드 처리 추가
     if (postData.images && postData.images.length > 0) {
       postData.images.forEach(file => {
         formData.append('images', file);
@@ -357,6 +400,12 @@ const handleCommentSubmit = async ({ postId, comment }) => {
     const response = await api.get(`/posts/${postId}`);
     const detailData = response.data;
 
+    const commentsList = detailData.comments || [];
+    const totalCount = calculateTotalComments(commentsList); 
+
+    // 캐시 주입
+    commentCountsCache.value[detailData.id] = totalCount;
+
     selectedPost.value = {
       id: detailData.id,
       placeId: detailData.place_id,
@@ -365,11 +414,12 @@ const handleCommentSubmit = async ({ postId, comment }) => {
       nickname: detailData.nickname,
       likes: detailData.like_count || detailData.likes || 0,
       bookmarks: detailData.bookmark_count || 0,
-      views: detailData.views || detailData.view_count || 0, // [수정] 조회수 동화 추가
-      images: detailData.images || [],                       // [수정] 다중 이미지 필드 링킹
+      views: detailData.views || detailData.view_count || 0, 
+      images: detailData.images || [],                       
+      comment_count: totalCount, 
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
       created_at: detailData.created_at,
-      comments: (detailData.comments || []).map(c => ({
+      comments: commentsList.map(c => ({
         id: c.id,
         post_id: c.post_id,
         parent_id: c.parent_id,
@@ -423,6 +473,8 @@ const handlePostDelete = async ({ postId, password }) => {
       params: { password }
     });
 
+    delete commentCountsCache.value[postId];
+
     sheetView.value = 'feed';
     selectedPost.value = null;
     if (selectedPlace.value) {
@@ -436,7 +488,6 @@ const handlePostDelete = async ({ postId, password }) => {
   }
 };
 
-// [추가] 명세서 스펙 준수 좋아요 비동기 요청 처리 구현
 const handlePostLike = async (postId) => {
   try {
     const clientId = getClientId();
@@ -445,11 +496,9 @@ const handlePostLike = async (postId) => {
       params: { client_id: clientId }
     });
 
-    // 상세화면 데이터 상태 즉시 가산 반영
     if (selectedPost.value && selectedPost.value.id === postId) {
       selectedPost.value.likes = (selectedPost.value.likes || 0) + 1;
     }
-    // 피드 목록 데이터 상태 즉시 가산 반영
     const feedItem = posts.value.find(p => p.id === postId);
     if (feedItem) {
       feedItem.likes = (feedItem.likes || 0) + 1;
@@ -560,6 +609,11 @@ const handleSelectPost = async (post) => {
     const response = await api.get(`/posts/${post.id}`);
     const detailData = response.data;
 
+    const commentsList = detailData.comments || [];
+    const totalCount = calculateTotalComments(commentsList);
+
+    commentCountsCache.value[detailData.id] = totalCount;
+
     selectedPost.value = {
       id: detailData.id,
       placeId: detailData.place_id,
@@ -568,11 +622,12 @@ const handleSelectPost = async (post) => {
       nickname: detailData.nickname,
       likes: detailData.like_count || detailData.likes || 0,
       bookmarks: detailData.bookmark_count || 0,
-      views: detailData.views || detailData.view_count || 0, // [수정] 조회수 동기화 추가
-      images: detailData.images || [],                       // [수정] 다중 이미지 필드 링킹
+      views: detailData.views || detailData.view_count || 0, 
+      images: detailData.images || [],                       
+      comment_count: totalCount,
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
       created_at: detailData.created_at,
-      comments: (detailData.comments || []).map(c => ({
+      comments: commentsList.map(c => ({
         id: c.id,
         post_id: c.post_id,
         parent_id: c.parent_id,
