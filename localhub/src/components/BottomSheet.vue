@@ -7,16 +7,12 @@
 
     <Transition :name="transitionName" mode="out-in">
       <div v-if="currentView === 'feed'" key="feed" class="flex-grow flex flex-col overflow-hidden">
-        <!-- [개선] 장소 상세 헤더 레이아웃 및 컴포넌트 디자인 고도화 -->
         <div v-if="selectedPlace" class="sticky top-0 z-30 bg-transparent px-6 md:px-8 border-b border-on-surface/5 min-h-[200px] pt-2">
           <div class="flex items-center gap-4">
             <div class="relative w-full h-48 md:h-56 rounded-3xl overflow-hidden shadow-xl group">
               <img :src="selectedPlace.image" :alt="selectedPlace.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
               
-              <!-- 암부 그라데이션 패치 -->
               <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent flex flex-col justify-end p-6">
-                
-                <!-- [개선] 글래스모피즘 타입 뱃지 + 실시간 펄스 인디케이터 구성 -->
                 <div v-if="selectedPlace.content_type" class="flex items-center gap-2 mb-2">
                   <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 backdrop-blur-xl border border-white/20 text-white text-[10px] font-extrabold rounded-full tracking-wider shadow-sm select-none">
                     <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse"></span>
@@ -24,12 +20,10 @@
                   </span>
                 </div>
 
-                <!-- 타이틀 드롭 섀도우 처리 -->
                 <h1 class="text-2xl md:text-3xl font-extrabold text-white leading-tight mb-1.5 drop-shadow-sm select-none">
                   {{ selectedPlace.title }}
                 </h1>
 
-                <!-- 주소 라벨 아이콘 색상 세분화 -->
                 <div class="flex items-center gap-1.5 text-xs text-white/90 drop-shadow-sm font-semibold">
                   <span class="material-symbols-outlined text-[16px] text-emerald-400">location_on</span>
                   <span>{{ selectedPlace.addr1 }}</span>
@@ -83,11 +77,18 @@
                 </div>
                 <p class="text-sm text-on-surface-variant leading-relaxed">{{ post.content }}</p>
               </div>
+              
               <div class="flex items-center justify-between mt-4 border-t border-slate-100 pt-3">
-                <span class="text-xs text-on-surface/40 font-bold flex items-center gap-1.5">
-                  <span class="material-symbols-outlined text-[18px]">chat_bubble</span> 
-                  댓글 {{ post.comments ? post.comments.length : 0 }}
-                </span>
+                <div class="flex items-center gap-3">
+                  <span class="text-xs text-on-surface/40 font-bold flex items-center gap-1.5">
+                    <span class="material-symbols-outlined text-[18px]">chat_bubble</span> 
+                    댓글 {{ post.comments ? post.comments.length : 0 }}
+                  </span>
+                  <span class="text-xs text-on-surface/40 font-bold flex items-center gap-1.5">
+                    <span class="material-symbols-outlined text-[18px]">visibility</span> 
+                    조회수 {{ post.views || post.view_count || 0 }}
+                  </span>
+                </div>
                 <span class="material-symbols-outlined text-community-emerald opacity-0 group-hover:opacity-100 transition-opacity">arrow_forward</span>
               </div>
             </div>
@@ -129,6 +130,45 @@
             </div>
             <h2 class="text-lg font-bold text-slate-800 mb-3">{{ selectedPost.title }}</h2>
             <p class="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">{{ selectedPost.content }}</p>
+
+            <div v-if="selectedPost.images && selectedPost.images.length > 0" class="flex flex-col gap-3 my-4">
+              <img 
+                v-for="(img, idx) in selectedPost.images" 
+                :key="idx" 
+                :src="getImageUrl(img)" 
+                class="w-full max-h-72 object-cover rounded-2xl border border-slate-100 shadow-sm" 
+                alt="첨부 이미지"
+              />
+            </div>
+
+            <div class="flex items-center justify-between pt-4 mt-4 border-t border-slate-50">
+              <div class="flex items-center gap-3 relative">
+                <button 
+                  type="button" 
+                  class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full border border-slate-200 text-xs font-bold text-slate-600 hover:bg-slate-50 active:scale-95 transition-all cursor-pointer select-none"
+                  @click.stop="triggerLikeClick"
+                >
+                  <span 
+                    class="material-symbols-outlined text-[16px] text-red-500 block"
+                    :class="{ 'animate-heart-bounce': isHeartAnimating }"
+                  >
+                    favorite
+                  </span>
+                  <span>좋아요 {{ selectedPost.likes || selectedPost.like_count || 0 }}</span>
+                </button>
+                
+                <Transition name="tooltip-fade">
+                  <div v-if="showLikeTooltip" class="absolute bottom-[135%] left-0 bg-slate-900/90 backdrop-blur-sm text-white text-[10px] font-bold px-2.5 py-1.5 rounded-xl shadow-md whitespace-nowrap z-50 pointer-events-none">
+                    이미 좋아요를 표현한 소식입니다!
+                  </div>
+                </Transition>
+
+                <span class="text-xs text-slate-400 font-bold flex items-center gap-1.5">
+                  <span class="material-symbols-outlined text-[16px]">visibility</span>
+                  <span>조회수 {{ selectedPost.views || selectedPost.view_count || 0 }}</span>
+                </span>
+              </div>
+            </div>
           </div>
 
           <div>
@@ -159,32 +199,18 @@
                     </div>
                     <p class="text-xs text-slate-600 leading-relaxed">{{ comment.content }}</p>
                   </div>
-                  <button 
-                    class="text-[10px] font-bold text-tourism-vibrant hover:underline ml-3 flex-shrink-0 align-top"
-                    @click.stop="setReplyTarget(comment)"
-                  >
-                    답글
-                  </button>
+                  <button class="text-[10px] font-bold text-tourism-vibrant hover:underline ml-3 flex-shrink-0 align-top" @click.stop="setReplyTarget(comment)">답글</button>
                 </div>
 
-                <div 
-                  v-for="reply in getRepliesFor(comment)" 
-                  :key="reply.id" 
-                  class="ml-8 pl-4 border-l-2 border-slate-200/80 bg-slate-50/40 rounded-r-xl p-3 flex flex-col"
-                >
+                <div v-for="reply in getRepliesFor(comment)" :key="reply.id" class="ml-8 pl-4 border-l-2 border-slate-200/80 bg-slate-50/40 rounded-r-xl p-3 flex flex-col">
                   <div class="flex justify-between items-center mb-1">
                     <span class="text-xs font-bold text-slate-700">{{ reply.nickname }}</span>
-                    <span class="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                      답글 · {{ formatTime(reply.created_at || reply.createdAt) }}
-                    </span>
+                    <span class="text-[9px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">답글 · {{ formatTime(reply.created_at || reply.createdAt) }}</span>
                   </div>
                   <p class="text-xs text-slate-600 leading-relaxed">{{ reply.content }}</p>
                 </div>
               </div>
-
-              <div v-if="rootComments.length === 0" class="text-center py-6 text-xs text-slate-400 border border-dashed border-slate-100 rounded-xl">
-                작성된 댓글이 없습니다.
-              </div>
+              <div v-if="rootComments.length === 0" class="text-center py-6 text-xs text-slate-400 border border-dashed border-slate-100 rounded-xl">작성된 댓글이 없습니다.</div>
             </div>
           </div>
         </div>
@@ -212,6 +238,26 @@
           <div class="flex flex-col gap-1.5">
             <label class="text-xs font-bold text-slate-500">정보 상세 내용</label>
             <textarea v-model="createForm.content" placeholder="방문자들을 위한 현장 소식을 남겨주세요" class="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-sm min-h-[140px] focus:outline-none focus:border-tourism-vibrant transition-all resize-none" required></textarea>
+          </div>
+
+          <div v-if="!isEditingMode" class="flex flex-col gap-1.5">
+            <label class="text-xs font-bold text-slate-500">이미지 첨부 (선택)</label>
+            <div class="flex items-center gap-3">
+              <label for="post-images-upload" class="flex flex-col items-center justify-center w-20 h-20 bg-slate-50 border border-dashed border-slate-300 rounded-xl cursor-pointer hover:bg-slate-100 transition-colors flex-shrink-0">
+                <span class="material-symbols-outlined text-[24px] text-slate-400">add_photo_alternate</span>
+                <span class="text-[10px] text-slate-400 font-bold mt-1">사진 추가</span>
+              </label>
+              <input id="post-images-upload" type="file" multiple accept="image/*" class="hidden" @change="handleFileChange" />
+              
+              <div v-if="imagePreviews.length > 0" class="flex gap-2 overflow-x-auto py-1 no-scrollbar flex-grow">
+                <div v-for="(preview, idx) in imagePreviews" :key="idx" class="relative w-20 h-20 rounded-xl overflow-hidden flex-shrink-0 border border-slate-100">
+                  <img :src="preview" class="w-full h-full object-cover" />
+                  <button type="button" @click="removeImage(idx)" class="absolute top-1 right-1 bg-black/60 text-white rounded-full w-5 h-5 flex items-center justify-center cursor-pointer border-none outline-none">
+                    <span class="material-symbols-outlined text-[12px]">close</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div v-if="!isEditingMode" class="flex flex-col gap-1.5">
@@ -268,11 +314,19 @@ const emit = defineEmits([
   'submit-post',
   'update-post',
   'delete-post',
-  'add-comment'
+  'add-comment',
+  'like-post'
 ]);
 
 const commentForm = ref({ nickname: '', content: '' });
 const createForm = ref({ nickname: '', title: '', content: '', password: '' });
+
+const selectedFiles = ref([]);
+const imagePreviews = ref([]);
+
+const isHeartAnimating = ref(false);
+const showLikeTooltip = ref(false);
+const likedHistory = ref(new Set()); 
 
 const transitionName = ref('slide-next');
 const replyTarget = ref(null);
@@ -282,9 +336,62 @@ const showAuthModal = ref(false);
 const authAction = ref(''); 
 const authPassword = ref('');
 
+const handleFileChange = (e) => {
+  const files = Array.from(e.target.files);
+  selectedFiles.value = [...selectedFiles.value, ...files];
+  
+  files.forEach(file => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      imagePreviews.value.push(event.target.result);
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+const removeImage = (index) => {
+  selectedFiles.value.splice(index, 1);
+  imagePreviews.value.splice(index, 1);
+};
+
+const triggerLikeClick = () => {
+  const postId = props.selectedPost.id;
+  isHeartAnimating.value = true;
+  setTimeout(() => { isHeartAnimating.value = false; }, 450);
+
+  if (likedHistory.value.has(postId)) {
+    showLikeTooltip.value = true;
+    setTimeout(() => { showLikeTooltip.value = false; }, 2000);
+    return;
+  }
+
+  likedHistory.value.add(postId);
+  emit('like-post', postId);
+};
+
+// 백엔드 relative image_path 파싱 파이프라인
+const getImageUrl = (img) => {
+  if (!img) return '';
+  if (typeof img === 'string') return img;
+  
+  const path = img.image_path || img.url || img.path;
+  if (!path) return '';
+  if (path.startsWith('http')) return path;
+  
+  const baseUrl = api.defaults.baseURL || import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/'; 
+  
+  // 정규식을 활용하여 주소 끝단에 매칭되는 /api 혹은 /api/ 서브 경로 제거
+  const rootUrl = baseUrl.replace(/\/api\/?$/, '');
+  
+  // 주소 연결 부 슬래시(/) 중복 및 유실 예외 처리
+  const cleanBaseUrl = rootUrl.endsWith('/') ? rootUrl : `${rootUrl}/`;
+  const cleanPath = path.startsWith('/') ? path.substring(1) : path;
+  
+  return `${cleanBaseUrl}${cleanPath}`;
+};
+
 const formatTime = (timeStr) => {
   if (!timeStr) return '';
-  
   let normalizedStr = timeStr;
   
   if (typeof timeStr === 'string' && timeStr.includes('T')) {
@@ -321,10 +428,8 @@ const rootComments = computed(() => {
 
 const getRepliesFor = (comment) => {
   if (!comment) return [];
-  
   if (Array.isArray(comment.replies)) return comment.replies;
   if (Array.isArray(comment.children)) return comment.children;
-  
   if (!props.selectedPost || !props.selectedPost.comments) return [];
   
   return props.selectedPost.comments.filter(c => 
@@ -332,13 +437,8 @@ const getRepliesFor = (comment) => {
   );
 };
 
-const setReplyTarget = (comment) => {
-  replyTarget.value = comment;
-};
-
-const clearReplyTarget = () => {
-  replyTarget.value = null;
-};
+const setReplyTarget = (comment) => { replyTarget.value = comment; };
+const clearReplyTarget = () => { replyTarget.value = null; };
 
 const openAuthModal = (action) => {
   authAction.value = action;
@@ -385,6 +485,8 @@ const backToFeed = () => {
 };
 
 const cancelCreateOrEdit = () => {
+  selectedFiles.value = [];
+  imagePreviews.value = [];
   if (isEditingMode.value) {
     isEditingMode.value = false;
     emit('change-view', 'detail');
@@ -428,6 +530,8 @@ const handleSheetClick = () => {
 const handleWriteClick = () => {
   isEditingMode.value = false;
   createForm.value = { nickname: '', title: '', content: '', password: '' };
+  selectedFiles.value = [];
+  imagePreviews.value = [];
   if (!props.isExpanded) {
     emit('toggle-expand');
   }
@@ -474,14 +578,39 @@ const submitPost = () => {
       title: createForm.value.title,
       content: createForm.value.content,
       nickname: createForm.value.nickname,
-      password: createForm.value.password
+      password: createForm.value.password,
+      images: selectedFiles.value
     });
   }
   createForm.value = { nickname: '', title: '', content: '', password: '' };
+  selectedFiles.value = [];
+  imagePreviews.value = [];
 };
 </script>
 
 <style scoped>
+@keyframes heartBounce {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.45) rotate(-8deg); }
+  60% { transform: scale(0.88) rotate(4deg); }
+  85% { transform: scale(1.1) rotate(-2deg); }
+  100% { transform: scale(1); }
+}
+
+.animate-heart-bounce {
+  animation: heartBounce 0.42s cubic-bezier(0.175, 0.885, 0.32, 1.275) both;
+}
+
+.tooltip-fade-enter-active,
+.tooltip-fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.tooltip-fade-enter-from,
+.tooltip-fade-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
 .slide-next-enter-active,
 .slide-next-leave-active,
 .slide-prev-enter-active,

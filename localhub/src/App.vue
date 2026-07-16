@@ -5,7 +5,7 @@
         <div class="flex items-center gap-2">
           <img
             src="/logo.png"
-            alt="LocalHub 로고"
+            alt="조동여지도 로고"
             class="h-10 w-auto object-contain select-none"
           />
         </div>
@@ -116,6 +116,7 @@
         @update-post="handlePostUpdate" 
         @delete-post="handlePostDelete"
         @add-comment="handleCommentSubmit"
+        @like-post="handlePostLike" 
       />
 
       <ChatWidget :current-region-label="selectedRegionLabel" />
@@ -133,7 +134,7 @@ import { ref, computed, onMounted } from 'vue';
 import MapArea from './components/MapArea.vue';
 import BottomSheet from './components/BottomSheet.vue';
 import ChatWidget from './chat/components/ChatWidget.vue';
-import AttributionModal from './components/AttributionModal.vue'; // [추가] 모달 컴포넌트 임포트
+import AttributionModal from './components/AttributionModal.vue'; 
 import api from './api'; 
 
 const regions = [
@@ -147,7 +148,7 @@ const regions = [
 
 const CURRENT_REGION = ref(null);
 const isDropdownOpen = ref(false);
-const isAttributionOpen = ref(false); // [추가] 모달의 활성화 제어 반응형 상태 선언
+const isAttributionOpen = ref(false); 
 
 const selectedPost = ref(null);
 const selectedPlace = ref(null);
@@ -173,6 +174,16 @@ const selectedRegionLabel = computed(() => {
   const target = regions.find(r => r.value === CURRENT_REGION.value);
   return target ? target.label : '전국';
 });
+
+// 좋아요 처리를 위한 로컬 단말기 식별 키 발급 및 로드
+const getClientId = () => {
+  let id = localStorage.getItem('jodong_client_id');
+  if (!id) {
+    id = 'client_' + Math.random().toString(36).substring(2, 11);
+    localStorage.setItem('jodong_client_id', id);
+  }
+  return id;
+};
 
 const getCategoryIcon = (value) => {
   const iconMap = {
@@ -277,8 +288,10 @@ const fetchPostsByPlace = async (placeId) => {
       title: post.title,
       content: post.content,
       nickname: post.nickname,
-      likes: post.like_count || 0,
+      likes: post.like_count || post.likes || 0,
       bookmarks: post.bookmark_count || 0,
+      views: post.views || post.view_count || 0, // [수정] 조회수 바인딩 추가
+      images: post.images || [],                 // [수정] 다중 이미지 필드 링킹
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
       created_at: post.created_at,
       comments: (post.comments || []).map(c => ({
@@ -301,12 +314,20 @@ const fetchPostsByPlace = async (placeId) => {
 
 const submitPost = async (postData) => {
   try {
+    isLoading.value = true;
     const formData = new FormData();
     formData.append('place_id', selectedPlace.value ? selectedPlace.value.id : 101);
     formData.append('title', postData.title);
     formData.append('content', postData.content);
     formData.append('nickname', postData.nickname || '익명');
     formData.append('password', postData.password || '1234'); 
+
+    // [수정] multipart/form-data 다중 이미지 업로드 처리 추가
+    if (postData.images && postData.images.length > 0) {
+      postData.images.forEach(file => {
+        formData.append('images', file);
+      });
+    }
 
     await api.post('/posts', formData, {
       headers: {
@@ -320,6 +341,8 @@ const submitPost = async (postData) => {
     }
   } catch (error) {
     console.error('게시글 생성 에러:', error);
+  } finally {
+    isLoading.value = false;
   }
 };
 
@@ -340,8 +363,10 @@ const handleCommentSubmit = async ({ postId, comment }) => {
       title: detailData.title,
       content: detailData.content,
       nickname: detailData.nickname,
-      likes: detailData.like_count || 0,
+      likes: detailData.like_count || detailData.likes || 0,
       bookmarks: detailData.bookmark_count || 0,
+      views: detailData.views || detailData.view_count || 0, // [수정] 조회수 동화 추가
+      images: detailData.images || [],                       // [수정] 다중 이미지 필드 링킹
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
       created_at: detailData.created_at,
       comments: (detailData.comments || []).map(c => ({
@@ -411,13 +436,26 @@ const handlePostDelete = async ({ postId, password }) => {
   }
 };
 
-const handleLike = async (postId) => {
+// [추가] 명세서 스펙 준수 좋아요 비동기 요청 처리 구현
+const handlePostLike = async (postId) => {
   try {
-    await api.post(`/posts/${postId}/like`);
-    const post = posts.value.find(p => p.id === postId);
-    if (post) post.likes++;
+    const clientId = getClientId();
+    
+    await api.post(`/posts/${postId}/like`, null, {
+      params: { client_id: clientId }
+    });
+
+    // 상세화면 데이터 상태 즉시 가산 반영
+    if (selectedPost.value && selectedPost.value.id === postId) {
+      selectedPost.value.likes = (selectedPost.value.likes || 0) + 1;
+    }
+    // 피드 목록 데이터 상태 즉시 가산 반영
+    const feedItem = posts.value.find(p => p.id === postId);
+    if (feedItem) {
+      feedItem.likes = (feedItem.likes || 0) + 1;
+    }
   } catch (error) {
-    console.error('좋아요 토글 실패:', error);
+    console.error('좋아요 요청 처리 실패:', error);
   }
 };
 
@@ -432,7 +470,6 @@ const handleBookmark = async (postId) => {
 };
 
 const handlePlaceClick = async (place) => {
-  // 1. 최소 데이터 기반으로 상태 변경하여 레이아웃 즉각 출력
   selectedPlace.value = place;
   sheetView.value = 'feed';
   selectedPost.value = null;
@@ -441,17 +478,15 @@ const handlePlaceClick = async (place) => {
 
   fetchPostsByPlace(place.id);
 
-  // 2. BottomSheet의 세부 렌더링에 필요한 상세 스펙을 비동기로 패치 후 바인딩 결합
   try {
     const response = await api.get('/details', { params: { place_id: place.id } });
     const detail = response.data;
     
-    // 기존 간이 객체에 주소, 연락처, 이미지 및 [content_type] 프로퍼티를 병합
     selectedPlace.value = {
       ...place,
       addr1: detail.addr1,
       tel: detail.tel,
-      content_type: detail.content_type, // [수정] content_type 데이터 동기화 추가
+      content_type: detail.content_type, 
       rating: detail.rating || 4.5,
       image: detail.firstimage || detail.image || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500',
       feedCount: detail.feedCount || 0
@@ -531,8 +566,10 @@ const handleSelectPost = async (post) => {
       title: detailData.title,
       content: detailData.content,
       nickname: detailData.nickname,
-      likes: detailData.like_count || 0,
+      likes: detailData.like_count || detailData.likes || 0,
       bookmarks: detailData.bookmark_count || 0,
+      views: detailData.views || detailData.view_count || 0, // [수정] 조회수 동기화 추가
+      images: detailData.images || [],                       // [수정] 다중 이미지 필드 링킹
       category: selectedPlace.value ? selectedPlace.value.title : '일반',
       created_at: detailData.created_at,
       comments: (detailData.comments || []).map(c => ({
