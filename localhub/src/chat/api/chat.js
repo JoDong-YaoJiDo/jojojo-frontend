@@ -6,8 +6,7 @@ const api = axios.create({
   // baseURL: "http://localhost:8000",
 
   // 배포 후
-  baseURL: import.meta.env.VITE_API_BASE_URL,
-  timeout: 30000,
+  baseURL: import.meta.env.VITE_API_BASE_URL
 });
 
 export const askChat = async (message) => {
