@@ -432,6 +432,7 @@ const handleBookmark = async (postId) => {
 };
 
 const handlePlaceClick = async (place) => {
+  // 1. 최소 데이터 기반으로 상태 변경하여 레이아웃 즉각 출력
   selectedPlace.value = place;
   sheetView.value = 'feed';
   selectedPost.value = null;
@@ -440,14 +441,17 @@ const handlePlaceClick = async (place) => {
 
   fetchPostsByPlace(place.id);
 
+  // 2. BottomSheet의 세부 렌더링에 필요한 상세 스펙을 비동기로 패치 후 바인딩 결합
   try {
     const response = await api.get('/details', { params: { place_id: place.id } });
     const detail = response.data;
     
+    // 기존 간이 객체에 주소, 연락처, 이미지 및 [content_type] 프로퍼티를 병합
     selectedPlace.value = {
       ...place,
       addr1: detail.addr1,
       tel: detail.tel,
+      content_type: detail.content_type, // [수정] content_type 데이터 동기화 추가
       rating: detail.rating || 4.5,
       image: detail.firstimage || detail.image || 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=500',
       feedCount: detail.feedCount || 0

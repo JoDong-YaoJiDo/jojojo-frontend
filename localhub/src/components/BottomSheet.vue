@@ -7,14 +7,31 @@
 
     <Transition :name="transitionName" mode="out-in">
       <div v-if="currentView === 'feed'" key="feed" class="flex-grow flex flex-col overflow-hidden">
+        <!-- [개선] 장소 상세 헤더 레이아웃 및 컴포넌트 디자인 고도화 -->
         <div v-if="selectedPlace" class="sticky top-0 z-30 bg-transparent px-6 md:px-8 border-b border-on-surface/5 min-h-[200px] pt-2">
           <div class="flex items-center gap-4">
             <div class="relative w-full h-48 md:h-56 rounded-3xl overflow-hidden shadow-xl group">
               <img :src="selectedPlace.image" :alt="selectedPlace.title" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110">
-              <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent flex flex-col justify-end p-6">
-                <h1 class="text-2xl md:text-3xl font-bold text-white leading-tight mb-1">{{ selectedPlace.title }}</h1>
-                <div class="flex items-center gap-1.5 text-xs text-white/80">
-                  <span class="material-symbols-outlined text-[16px]">location_on</span>
+              
+              <!-- 암부 그라데이션 패치 -->
+              <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-transparent flex flex-col justify-end p-6">
+                
+                <!-- [개선] 글래스모피즘 타입 뱃지 + 실시간 펄스 인디케이터 구성 -->
+                <div v-if="selectedPlace.content_type" class="flex items-center gap-2 mb-2">
+                  <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 backdrop-blur-xl border border-white/20 text-white text-[10px] font-extrabold rounded-full tracking-wider shadow-sm select-none">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)] animate-pulse"></span>
+                    {{ selectedPlace.content_type }}
+                  </span>
+                </div>
+
+                <!-- 타이틀 드롭 섀도우 처리 -->
+                <h1 class="text-2xl md:text-3xl font-extrabold text-white leading-tight mb-1.5 drop-shadow-sm select-none">
+                  {{ selectedPlace.title }}
+                </h1>
+
+                <!-- 주소 라벨 아이콘 색상 세분화 -->
+                <div class="flex items-center gap-1.5 text-xs text-white/90 drop-shadow-sm font-semibold">
+                  <span class="material-symbols-outlined text-[16px] text-emerald-400">location_on</span>
                   <span>{{ selectedPlace.addr1 }}</span>
                 </div>
               </div>
@@ -183,8 +200,8 @@
 
         <form @submit.prevent="submitPost" class="flex-grow overflow-y-auto custom-scrollbar flex flex-col gap-4 pr-1">
           <div class="flex flex-col gap-1.5">
-            <label class="text-xs font-bold text-slate-500">작성자 명의</label>
-            <input v-model="createForm.nickname" type="text" placeholder="필명을 입력하세요" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-tourism-vibrant transition-all" required />
+            <label class="text-xs font-bold text-slate-500">닉네임</label>
+            <input v-model="createForm.nickname" type="text" placeholder="원하는 이름을 입력해 주세요" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-tourism-vibrant transition-all" required />
           </div>
 
           <div class="flex flex-col gap-1.5">
@@ -231,7 +248,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
-import api from '../api'; // [수정] 사전 인증 통신 처리를 위해 로컬 api 임포트
+import api from '../api'; 
 
 const props = defineProps({
   selectedPlace: { type: Object, default: null },
@@ -270,7 +287,6 @@ const formatTime = (timeStr) => {
   
   let normalizedStr = timeStr;
   
-  // 문자열에 T가 포함되어 있고 시간부에 타임존 정보(Z, +, -)가 없는 경우 UTC(Z) 접미사 강제 추가
   if (typeof timeStr === 'string' && timeStr.includes('T')) {
     const [, timePart] = timeStr.split('T');
     if (timePart && !timePart.endsWith('Z') && !timePart.includes('+') && !timePart.includes('-')) {
@@ -330,14 +346,12 @@ const openAuthModal = (action) => {
   showAuthModal.value = true;
 };
 
-// [수정] 모달 확인 클릭 시 바로 폼으로 넘어가는 것이 아니라, 백엔드 PUT 요청을 먼저 날려서 비밀번호를 사전에 완벽히 검증
 const confirmAuth = async () => {
   if (authAction.value === 'delete') {
     showAuthModal.value = false;
     emit('delete-post', { postId: props.selectedPost.id, password: authPassword.value });
   } else if (authAction.value === 'edit') {
     try {
-      // 기존 소식 정보를 실은 PUT 통신을 날려 비밀번호 무결성을 체크합니다.
       await api.put(`/posts/${props.selectedPost.id}`, {
         title: props.selectedPost.title,
         content: props.selectedPost.content,
@@ -345,14 +359,13 @@ const confirmAuth = async () => {
         password: authPassword.value
       });
 
-      // 검증 성공 시에만 모달을 닫고 폼 데이터를 복사하여 수정 폼으로 이탈 진입
       showAuthModal.value = false;
       isEditingMode.value = true;
       createForm.value = {
         nickname: props.selectedPost.nickname,
         title: props.selectedPost.title,
         content: props.selectedPost.content,
-        password: authPassword.value // 사후 등록 완료 시 함께 전송될 수 있도록 미리 매핑
+        password: authPassword.value 
       };
       emit('change-view', 'create');
     } catch (error) {
